@@ -1,0 +1,11 @@
+extends: ../base.yaml
+environment:
+  obstacles:
+    - center: [0.2, 0.9]
+      radius: 0.2
+    - center: [0.8, 0.8]
+      radius: 0.2
+    - center: [1.1, 1.3]
+      radius: 0.18
+    - center: [1.4, 0.9]
+      radius: 0.15

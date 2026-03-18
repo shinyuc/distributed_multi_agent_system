@@ -1,0 +1,43 @@
+seed: 42
+simulation:
+  dt: 0.05
+  steps: 400
+  save_trajectories: true
+  output_dir: outputs
+agents:
+  n_agents: 6
+  radius: 0.15
+  max_speed: 1.0
+  initial_positions:
+    - [0.0, 0.0]
+    - [0.5, 0.0]
+    - [1.0, 0.0]
+    - [0.0, 0.5]
+    - [0.5, 0.5]
+    - [1.0, 0.5]
+environment:
+  bounds: [-2.0, 2.0, -2.0, 2.0]
+  obstacles:
+    - center: [0.5, 1.2]
+      radius: 0.25
+    - center: [1.2, 1.0]
+      radius: 0.20
+  target_region:
+    center: [1.5, 1.5]
+    radius: 0.4
+controller:
+  method: distributed
+  solver: cvxpy
+  gains:
+    target: 1.0
+    safety: 1.0
+    connectivity: 1.0
+  safety:
+    min_inter_agent_distance: 0.35
+    obstacle_margin: 0.10
+    enforce_connectivity: false
+    max_connectivity_distance: 1.2
+  qp:
+    weight_u: 1.0
+    weight_slack: 100.0
+    use_slack: true
