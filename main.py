@@ -352,6 +352,7 @@ def main() -> None:
             {
                 "config_path": args.config,
                 "controller_mode": cfg.controller.mode,
+                "initialization_log_path": cfg.agents.initialization_log_path,
                 "dt": cfg.simulation.dt,
                 "steps": cfg.simulation.steps,
                 "stopped_early": result.stopped_early,
@@ -382,7 +383,17 @@ def main() -> None:
         with (out_dir / "centralized_debug_records.json").open("w", encoding="utf-8") as f:
             json.dump(centralized_debug_records, f, indent=2)
 
-    plot_trajectories(env, result.trajectories, save_path=out_dir / "trajectories.png", show=False)
+    init_region_to_plot = None
+    if cfg.agents.init_mode in {"random_region", "random_connected"}:
+        init_region_to_plot = cfg.agents.init_region
+
+    plot_trajectories(
+        env,
+        result.trajectories,
+        init_region=init_region_to_plot,
+        save_path=out_dir / "trajectories.png",
+        show=False,
+    )
 
     overall_obstacle = _overall_min(result.min_obstacle_clearance)
     overall_inter_agent = _overall_min(result.min_inter_agent_distance)

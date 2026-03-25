@@ -9,11 +9,44 @@ import numpy as np
 from matplotlib.patches import Circle, Ellipse
 
 from models.environment import Environment
+from utils.init_generator import InitRegion
+
+
+def _add_region_ellipse(
+    ax: plt.Axes,
+    region: InitRegion,
+) -> None:
+    """Draw an ellipsoidal region defined by (x-c)^T Sigma (x-c) <= radius^2."""
+
+    sigma_np = np.asarray(region.Sigma, dtype=float)
+    if sigma_np.shape != (2, 2):
+        return
+
+    evals, evecs = np.linalg.eigh(sigma_np)
+    if not np.all(evals > 0):
+        return
+
+    axes = float(region.radius) / np.sqrt(evals)
+    angle_deg = float(np.degrees(np.arctan2(evecs[1, 0], evecs[0, 0])))
+    ax.add_patch(
+        Ellipse(
+            xy=tuple(region.center),
+            width=2.0 * float(axes[0]),
+            height=2.0 * float(axes[1]),
+            angle=angle_deg,
+            facecolor="tab:blue",
+            edgecolor="tab:blue",
+            alpha=0.12,
+            linestyle="--",
+            linewidth=1.5,
+        )
+    )
 
 
 def plot_trajectories(
     env: Environment,
     trajectories: list[list[tuple[float, float]]],
+    init_region: InitRegion | None = None,
     save_path: str | Path | None = None,
     show: bool = False,
 ) -> None:
@@ -50,6 +83,9 @@ def plot_trajectories(
                 alpha=0.25,
             )
         )
+
+    if init_region is not None:
+        _add_region_ellipse(ax, init_region)
 
     sigma = getattr(env.target, "Sigma", None)
     if sigma is not None:

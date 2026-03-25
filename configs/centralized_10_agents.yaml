@@ -1,23 +1,27 @@
 simulation:
   dt: 0.01
-  steps: 5000
+  steps: 20000
   seed: 42
 
 agents:
-  num_agents: 5
+  num_agents: 10
   initial_positions:
-    - [-10.0, -1.0]
-    - [-10.0, 1.0]
-    - [-9.0, 0.0]
-    - [-8.0, -1.0]
-    - [-8.0, 1.0]
+    - [-1.2,  -0.75]
+    - [-1.2, 0.75]
+    - [-1.2, 0.0]
+    - [-1.2, -0.5]
+    - [-1.2, 0.5]
+    - [-1.0,  -0.75]
+    - [-1.0, 0.75]
+    - [-1.0, 0.0]
+    - [-1.0, -0.5]
+    - [-1.0, 0.5]
 
 obstacles:
   obstacles:
     - center: [-5.0, 1.0]
       radius: 0.6
-    - center: [-2.0, -1.5]
-      radius: 0.5
+    
 
 target:
   center: [0.0, 0.0]
@@ -29,18 +33,18 @@ target:
 
 controller:
   mode: centralized
-  u_max: 20.0
+  u_max: 20.0 # 20.0
   safety_distance: 0.3
-  clf_rate: 0.18
+  clf_rate: 0.025 # 0.18
   cbf_rate: 2.0
   nominal_gain: 1.0
   enable_connectivity_constraint: True
-  alpha_clf: 1
-  alpha_connectivity: 1
+  alpha_clf: 1.0 # 1.0
+  alpha_connectivity: 1.0
 
 fast_dynamics:
-  tau: 0.2
-  xi: 1.0
-  d_c: 10.0
+  tau: 0.02 # 0.1
+  xi: 0.5 # 1.0
+  d_c: 0.9 # 100
   eta: 0.1
   epsilon_c: 0.1

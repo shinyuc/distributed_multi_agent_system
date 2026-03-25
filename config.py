@@ -11,6 +11,13 @@ from typing import Any
 
 import yaml
 
+from utils.init_generator import (
+    InitRegion,
+    generate_initial_positions,
+    save_initialization_record,
+    validate_initial_positions,
+)
+
 
 @dataclass
 class SimulationConfig:
@@ -27,6 +34,9 @@ class AgentsConfig:
 
     num_agents: int
     initial_positions: list[list[float]]
+    init_mode: str = "manual"
+    init_region: InitRegion | None = None
+    initialization_log_path: str | None = None
 
 
 @dataclass
@@ -99,6 +109,17 @@ def _validate_positions(initial_positions: list[list[float]]) -> None:
             )
 
 
+def _parse_init_region(raw_agents: dict[str, Any]) -> InitRegion | None:
+    raw_region = raw_agents.get("init_region")
+    if raw_region is None:
+        return None
+
+    try:
+        return InitRegion(**raw_region)
+    except TypeError as exc:
+        raise ValueError(f"Invalid agents.init_region schema: {exc}") from exc
+
+
 def _validate_obstacles(obstacles: list[dict[str, Any]]) -> None:
     for idx, obs in enumerate(obstacles):
         if "center" not in obs or "radius" not in obs:
@@ -132,7 +153,14 @@ def load_config(path: str) -> Config:
 
     try:
         simulation = SimulationConfig(**raw["simulation"])
-        agents = AgentsConfig(**raw["agents"])
+        raw_agents = raw["agents"]
+        init_region = _parse_init_region(raw_agents)
+        agents = AgentsConfig(
+            num_agents=raw_agents["num_agents"],
+            initial_positions=raw_agents["initial_positions"],
+            init_mode=raw_agents.get("init_mode", "manual"),
+            init_region=init_region,
+        )
         obstacles = ObstaclesConfig(**raw["obstacles"])
         target = TargetConfig(**raw["target"])
         controller = ControllerConfig(**raw["controller"])
@@ -148,10 +176,11 @@ def load_config(path: str) -> Config:
         raise ValueError(f"simulation.steps must be > 0, got {simulation.steps}.")
 
     _validate_positions(agents.initial_positions)
-    if agents.num_agents != len(agents.initial_positions):
+    agents.init_mode = agents.init_mode.lower()
+    if agents.init_mode not in {"manual", "random_region"}:
         raise ValueError(
-            "agents.num_agents must match len(agents.initial_positions): "
-            f"{agents.num_agents} != {len(agents.initial_positions)}"
+            "agents.init_mode must be 'manual' or 'random_region', "
+            f"got {agents.init_mode!r}."
         )
 
     _validate_obstacles(obstacles.obstacles)
@@ -194,6 +223,36 @@ def load_config(path: str) -> Config:
             "fast_dynamics.v2 must have one scalar per agent: "
             f"len(v2)={len(fast_dynamics.v2)} != num_agents={agents.num_agents}"
         )
+
+    if agents.init_mode == "random_region":
+        if agents.init_region is None:
+            raise ValueError(
+                "agents.init_region is required when agents.init_mode is 'random_region'."
+            )
+        generated_positions, init_record = generate_initial_positions(
+            num_agents=agents.num_agents,
+            region=agents.init_region,
+            safety_distance=controller.safety_distance,
+            d_c=fast_dynamics.d_c,
+            seed=simulation.seed,
+        )
+        agents.initial_positions = generated_positions
+    else:
+        init_record = validate_initial_positions(
+            positions=agents.initial_positions,
+            num_agents=agents.num_agents,
+            safety_distance=controller.safety_distance,
+            d_c=fast_dynamics.d_c,
+            mode="manual",
+            seed=simulation.seed,
+            region=agents.init_region,
+        )
+
+    agents.initialization_log_path = save_initialization_record(
+        record=init_record,
+        region=agents.init_region,
+        config_path=path,
+    )
 
     return Config(
         simulation=simulation,
