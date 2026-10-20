@@ -10,7 +10,8 @@ constraints in the form:
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -35,6 +36,25 @@ class LocalQPData:
     A: list[list[float]]
     b: list[float]
     row_labels: list[str]
+    # Unscaled rows (a^T u <= b before the positive row scaling in _append_row).
+    # Kept for diagnostics only; the solver uses A/b above.
+    A_raw: list[list[float]] = field(default_factory=list)
+    b_raw: list[float] = field(default_factory=list)
+
+
+@dataclass
+class LocalQPSolveResult:
+    """Outcome of one local QP solve, including the unmodified solver status."""
+
+    u: tuple[float, float]
+    success: bool
+    reason: str
+    status: str | None
+    num_iters: int | None = None
+    solve_time: float | None = None
+    wall_time: float | None = None
+    pri_res: float | None = None
+    dua_res: float | None = None
 
 
 def solve_local_qp(qp_data: LocalQPData) -> tuple[float, float]:
@@ -47,13 +67,29 @@ def solve_local_qp_with_status(
     qp_data: LocalQPData,
 ) -> tuple[tuple[float, float], bool, str]:
     """Solve local QP and return (u, success, reason)."""
+    result = solve_local_qp_detailed(qp_data)
+    return result.u, result.success, result.reason
+
+
+def _osqp_residuals(problem: Any) -> tuple[float | None, float | None]:
+    extra = getattr(getattr(problem, "solver_stats", None), "extra_stats", None)
+    info = getattr(extra, "info", None)
+    if info is None:
+        return None, None
+    pri = getattr(info, "pri_res", getattr(info, "prim_res", None))
+    dua = getattr(info, "dua_res", getattr(info, "dual_res", None))
+    return (float(pri) if pri is not None else None, float(dua) if dua is not None else None)
+
+
+def solve_local_qp_detailed(qp_data: LocalQPData) -> LocalQPSolveResult:
+    """Solve local QP and return the solution with the raw solver status."""
     # Fallback policy: if assembly/solve fails or problem is not solved reliably,
     # return (0.0, 0.0) so control remains well-defined and simulation can continue.
     try:
         import cvxpy as cp
     except ImportError:
         # WARNING: Fallback path if cvxpy is unavailable.
-        return (0.0, 0.0), False, "cvxpy import failed"
+        return LocalQPSolveResult((0.0, 0.0), False, "cvxpy import failed", None)
 
     try:
         P = np.asarray(qp_data.P, dtype=float)
@@ -63,16 +99,19 @@ def solve_local_qp_with_status(
 
         if P.shape != (2, 2) or q.shape != (2,):
             # WARNING: Fallback path if QP dimensions are invalid.
-            return (0.0, 0.0), False, f"invalid objective dimensions P={P.shape}, q={q.shape}"
+            return LocalQPSolveResult(
+                (0.0, 0.0), False, f"invalid objective dimensions P={P.shape}, q={q.shape}", None
+            )
         if A.size == 0:
             A = np.zeros((0, 2), dtype=float)
             b = np.zeros((0,), dtype=float)
         if A.ndim != 2 or A.shape[1] != 2 or b.ndim != 1 or A.shape[0] != b.shape[0]:
             # WARNING: Fallback path if inequality dimensions are invalid.
-            return (
+            return LocalQPSolveResult(
                 (0.0, 0.0),
                 False,
                 f"invalid inequality dimensions A={A.shape}, b={b.shape}",
+                None,
             )
 
         u = cp.Variable(2)
@@ -81,16 +120,31 @@ def solve_local_qp_with_status(
         if A.shape[0] > 0:
             constraints.append(A @ u <= b)
         problem = cp.Problem(cp.Minimize(objective), constraints)
+        t0 = time.perf_counter()
         problem.solve(solver=cp.OSQP, warm_start=True, verbose=False, polish=False)
+        wall = time.perf_counter() - t0
+        status = str(problem.status)
+        stats = getattr(problem, "solver_stats", None)
+        num_iters = getattr(stats, "num_iters", None)
+        solve_time = getattr(stats, "solve_time", None)
+        pri_res, dua_res = _osqp_residuals(problem)
+        details = dict(
+            status=status,
+            num_iters=int(num_iters) if num_iters is not None else None,
+            solve_time=float(solve_time) if solve_time is not None else None,
+            wall_time=wall,
+            pri_res=pri_res,
+            dua_res=dua_res,
+        )
 
         if problem.status not in {"optimal", "optimal_inaccurate"} or u.value is None:
             # WARNING: Fallback path if QP is infeasible or solver failed.
-            return (0.0, 0.0), False, f"solver status={problem.status}"
+            return LocalQPSolveResult((0.0, 0.0), False, f"solver status={problem.status}", **details)
 
-        return (float(u.value[0]), float(u.value[1])), True, "optimal"
+        return LocalQPSolveResult((float(u.value[0]), float(u.value[1])), True, status, **details)
     except Exception as exc:
         # WARNING: Fallback path for any runtime solver/assembly error.
-        return (0.0, 0.0), False, f"exception: {exc}"
+        return LocalQPSolveResult((0.0, 0.0), False, f"exception: {exc}", "exception")
 
 
 def _append_row(
@@ -100,6 +154,8 @@ def _append_row(
     a_row: Vector2,
     b_val: float,
     label: str,
+    A_raw: list[list[float]] | None = None,
+    b_raw: list[float] | None = None,
 ) -> None:
     # Numerically equivalent positive row scaling: (a^T u <= b) -> ((a/s)^T u <= b/s)
     # with s = max(||a||_2, |b|, 1e-8).
@@ -112,6 +168,9 @@ def _append_row(
     A.append([a0 / s, a1 / s])
     b.append(b_scalar / s)
     row_labels.append(label)
+    if A_raw is not None and b_raw is not None:
+        A_raw.append([a0, a1])
+        b_raw.append(b_scalar)
 
 
 def build_pairwise_constraint_row(
@@ -434,6 +493,8 @@ def build_local_qp_data(
     A: list[list[float]] = []
     b: list[float] = []
     row_labels: list[str] = []
+    A_raw: list[list[float]] = []
+    b_raw: list[float] = []
 
     for j, z_edge in state.z_pair.items():
         if j not in all_agent_states:
@@ -461,7 +522,7 @@ def build_local_qp_data(
             step_idx=step_idx,
             w_i=state.w,
         )
-        _append_row(A, b, row_labels, a_row, b_val, label)
+        _append_row(A, b, row_labels, a_row, b_val, label, A_raw, b_raw)
 
     for k, obstacle in enumerate(obstacles):
         a_row, b_val, label = build_obstacle_constraint_row(
@@ -471,7 +532,7 @@ def build_local_qp_data(
             obstacle=obstacle,
             gamma_2=gamma_2,
         )
-        _append_row(A, b, row_labels, a_row, b_val, label)
+        _append_row(A, b, row_labels, a_row, b_val, label, A_raw, b_raw)
 
     if enable_connectivity_constraint:
         a_row, b_val, label = build_connectivity_constraint_row(
@@ -487,7 +548,7 @@ def build_local_qp_data(
             v2=v2,
             n_agents=n_agents,
         )
-        _append_row(A, b, row_labels, a_row, b_val, label)
+        _append_row(A, b, row_labels, a_row, b_val, label, A_raw, b_raw)
 
     a_row, b_val, label = build_clf_constraint_row(
         i=i,
@@ -503,9 +564,9 @@ def build_local_qp_data(
         step_idx=step_idx,
         debug_disable_coupling=debug_disable_clf_coupling,
     )
-    _append_row(A, b, row_labels, a_row, b_val, label)
+    _append_row(A, b, row_labels, a_row, b_val, label, A_raw, b_raw)
 
     for a_row, b_val, label in build_actuator_box_rows(u_max=u_max):
-        _append_row(A, b, row_labels, a_row, b_val, label)
+        _append_row(A, b, row_labels, a_row, b_val, label, A_raw, b_raw)
 
-    return LocalQPData(P=P, q=q, A=A, b=b, row_labels=row_labels)
+    return LocalQPData(P=P, q=q, A=A, b=b, row_labels=row_labels, A_raw=A_raw, b_raw=b_raw)

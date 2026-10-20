@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import sqrt
 
 from controller.base_controller import Controller
@@ -38,6 +38,9 @@ class SimulationResult:
     infeasible_step: int | None
     infeasible_agent_id: int | None
     infeasible_diagnostics: dict[str, object] | None
+    # All agents whose local QP failed at infeasible_step (all agents are solved
+    # before the simulation stops).
+    infeasible_agent_ids: list[int] = field(default_factory=list)
 
 
 class Simulator:
@@ -462,6 +465,7 @@ class Simulator:
         infeasible_step: int | None = None
         infeasible_agent_id: int | None = None
         infeasible_diagnostics: dict[str, object] | None = None
+        infeasible_agent_ids: list[int] = []
         fast_states_step_4_snapshot: dict[int, FastState] | None = None
 
         positions = self.env.agent_positions()
@@ -524,6 +528,9 @@ class Simulator:
                     )
                     control_history[agent.agent_id].append(controls[agent.agent_id])
             else:
+                # Solve every agent's local QP at this step, then stop if any failed.
+                # No fallback input is applied and the state is not advanced.
+                step_failures: list[LocalQPInfeasibleError] = []
                 for agent in self.agents:
                     try:
                         controls[agent.agent_id] = self.controller.compute_control(
@@ -546,12 +553,9 @@ class Simulator:
                             v2=v2_runtime,
                         )
                     except LocalQPInfeasibleError as exc:
-                        stopped_early = True
-                        infeasible_step = step_idx if exc.step_idx is None else int(exc.step_idx)
-                        infeasible_agent_id = int(exc.agent_id)
-                        infeasible_diagnostics = exc.diagnostics
+                        step_failures.append(exc)
                         self._print_infeasibility_diagnostics(exc.diagnostics)
-                        break
+                        continue
                     ux, uy = controls[agent.agent_id]
                     u_norm = sqrt(ux * ux + uy * uy)
                     print(
@@ -559,6 +563,13 @@ class Simulator:
                         f"u=({ux:.6f}, {uy:.6f}), norm={u_norm:.6f}"
                     )
                     control_history[agent.agent_id].append(controls[agent.agent_id])
+                if step_failures:
+                    first = step_failures[0]
+                    stopped_early = True
+                    infeasible_step = step_idx if first.step_idx is None else int(first.step_idx)
+                    infeasible_agent_id = int(first.agent_id)
+                    infeasible_agent_ids = [int(exc.agent_id) for exc in step_failures]
+                    infeasible_diagnostics = first.diagnostics
             if stopped_early:
                 break
 
@@ -749,4 +760,5 @@ class Simulator:
             infeasible_step=infeasible_step,
             infeasible_agent_id=infeasible_agent_id,
             infeasible_diagnostics=infeasible_diagnostics,
+            infeasible_agent_ids=infeasible_agent_ids,
         )

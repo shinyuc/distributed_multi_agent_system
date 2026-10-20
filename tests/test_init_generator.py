@@ -1,4 +1,5 @@
 from pathlib import Path
+import textwrap
 
 from config import load_config
 from utils.init_generator import (
@@ -24,16 +25,18 @@ def test_generate_initial_positions_satisfies_constraints():
         region=region,
         safety_distance=0.3,
         d_c=0.9,
+        epsilon_c=0.1,
         seed=7,
     )
 
     assert len(positions) == 4
     assert record["is_connected"] is True
     assert record["minimum_pairwise_distance"] > 0.3
+    assert record["connectivity_threshold"] == 0.8
     assert sum(sum(row) for row in record["adjacency_matrix"]) > 0
 
 
-def test_validate_initial_positions_rejects_disconnected_graph():
+def test_validate_initial_positions_rejects_graph_b_disconnected_graph():
     region = InitRegion(
         center=[0.0, 0.0],
         Sigma=[[1.0, 0.0], [0.0, 1.0]],
@@ -43,22 +46,80 @@ def test_validate_initial_positions_rejects_disconnected_graph():
 
     try:
         validate_initial_positions(
-            positions=[[0.0, 0.0], [2.0, 0.0], [4.5, 0.0]],
+            positions=[[0.0, 0.0], [0.85, 0.0], [1.70, 0.0]],
             num_agents=3,
             safety_distance=0.3,
             d_c=1.0,
+            epsilon_c=0.2,
             mode="manual",
             seed=42,
             region=region,
         )
     except ValueError as exc:
-        assert "connected" in str(exc)
+        assert "Graph B" in str(exc)
     else:
-        raise AssertionError("Expected disconnected positions to fail validation.")
+        raise AssertionError("Expected Graph B disconnected positions to fail validation.")
 
 
-def test_load_config_random_region_generates_positions_and_saves_log():
-    cfg = load_config("configs/distributed_10_agents.yaml")
+def test_load_config_random_region_generates_positions_and_saves_log(tmp_path):
+    config_path = tmp_path / "random_region.yaml"
+    config_path.write_text(
+        textwrap.dedent(
+            """
+            simulation:
+              dt: 0.001
+              steps: 10
+              seed: 42
+
+            agents:
+              num_agents: 4
+              init_mode: random_region
+              initial_positions:
+                - [0.0, 0.0]
+                - [0.1, 0.0]
+                - [0.2, 0.0]
+                - [0.3, 0.0]
+              init_region:
+                center: [0.0, 0.0]
+                Sigma:
+                  - [1.0, 0.0]
+                  - [0.0, 1.0]
+                radius: 1.0
+                save_dir: outputs/init_conditions
+                max_sampling_attempts: 200
+                max_global_restarts: 10
+
+            obstacles:
+              obstacles: []
+
+            target:
+              center: [0.0, 0.0]
+              radius: 1.0
+              Sigma:
+                - [1.0, 0.0]
+                - [0.0, 1.0]
+              epsilon: 0.2
+
+            controller:
+              mode: distributed
+              u_max: 1.0
+              safety_distance: 0.2
+              clf_rate: 0.1
+              cbf_rate: 1.0
+              nominal_gain: 1.0
+
+            fast_dynamics:
+              tau: 0.01
+              xi: 0.5
+              d_c: 0.9
+              eta: 0.1
+              epsilon_c: 0.1
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    cfg = load_config(str(config_path))
 
     assert cfg.agents.init_mode == "random_region"
     assert len(cfg.agents.initial_positions) == cfg.agents.num_agents
@@ -81,6 +142,7 @@ def test_generate_initial_positions_fails_gracefully_for_impossible_geometry():
             region=region,
             safety_distance=0.5,
             d_c=0.9,
+            epsilon_c=0.1,
             seed=11,
         )
     except ValueError as exc:

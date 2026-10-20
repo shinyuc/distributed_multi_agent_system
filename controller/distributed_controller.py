@@ -6,7 +6,7 @@ from config import ControllerConfig
 from controller.base_controller import Controller
 from controller.constraints import obstacle_constraint_coefficients
 from controller.fast_dynamics import compute_V_i, compute_beta_i, compute_clf_gradient_term, h_ij, pairwise_constraint_value
-from controller.local_qp import build_local_qp_data, solve_local_qp_with_status
+from controller.local_qp import build_local_qp_data, solve_local_qp_detailed
 from models.agent import AgentState, Vector2
 from models.environment import Environment
 from models.fast_state import FastState
@@ -35,6 +35,12 @@ class DistributedController(Controller):
     def __init__(self, config: ControllerConfig):
         self.config = config
         self.qp_debug_records: dict[tuple[int, int], dict[str, object]] = {}
+        # Keeping full A/b for every (step, agent) grows without bound on long runs;
+        # diagnostic runners can turn it off.
+        self.store_qp_debug_records = True
+        # Optional read-only hook called after every local QP solve (diagnostics).
+        # Its return value is ignored and it cannot change the applied control.
+        self.qp_observer = None
         # ######### check
         # self.enable_connectivity_constraint = config.enable_connectivity_constraint
         # print("[DEBUG DistributedController.__init__] enable_connectivity_constraint ="
@@ -275,7 +281,7 @@ class DistributedController(Controller):
             if not isinstance(kwargs["v2"], dict):
                 raise ValueError("Runtime v2 must be a dict[int, float].")
 
-        qp_data = build_local_qp_data(
+        qp_kwargs = dict(
             i=agent.agent_id,
             state=fast_state,
             all_fast_states=all_fast_states,
@@ -301,6 +307,7 @@ class DistributedController(Controller):
             v2=kwargs["v2"] if "v2" in kwargs else None,  # type: ignore[arg-type]
             n_agents=int(kwargs.get("n_agents", len(all_agent_states))),
         )
+        qp_data = build_local_qp_data(**qp_kwargs)
         if (
             agent.agent_id in {0, 3}
             and isinstance(step_idx, int)
@@ -336,12 +343,24 @@ class DistributedController(Controller):
                     f"active_or_conflicting_at_u0={active_or_conflicting}"
                 )
 
-        u_star, solve_ok, reason = solve_local_qp_with_status(qp_data)
+        solve_result = solve_local_qp_detailed(qp_data)
+        u_star, solve_ok, reason = solve_result.u, solve_result.success, solve_result.reason
+        if self.qp_observer is not None:
+            self.qp_observer(
+                step_idx=step_idx,
+                agent_id=agent.agent_id,
+                qp_data=qp_data,
+                solve_result=solve_result,
+                qp_kwargs=qp_kwargs,
+                env=env,
+                runtime_kwargs=kwargs,
+            )
         z_pair_snapshot: dict[int, tuple[float, float]] = {
             j: (edge.self_component, edge.neighbor_component)
             for j, edge in fast_state.z_pair.items()
         }
-        if isinstance(step_idx, int):
+        store_records = self.store_qp_debug_records and isinstance(step_idx, int)
+        if store_records:
             self.qp_debug_records[(step_idx, agent.agent_id)] = {
                 "row_labels": list(qp_data.row_labels),
                 "A": [list(row) for row in qp_data.A],
@@ -700,7 +719,7 @@ class DistributedController(Controller):
                     n_agents=int(kwargs.get("n_agents", len(all_agent_states))),
                 ),
             }
-            if isinstance(step_idx, int):
+            if store_records:
                 self.qp_debug_records[(step_idx, agent.agent_id)]["u_returned"] = (
                     float("nan"),
                     float("nan"),
@@ -712,7 +731,7 @@ class DistributedController(Controller):
                 diagnostics=diagnostics,
             )
 
-        if isinstance(step_idx, int):
+        if store_records:
             self.qp_debug_records[(step_idx, agent.agent_id)]["u_returned"] = (
                 float(u_star[0]),
                 float(u_star[1]),

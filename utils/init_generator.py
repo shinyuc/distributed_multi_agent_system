@@ -83,15 +83,26 @@ def sample_point_in_region(region: InitRegion, rng: np.random.Generator) -> np.n
     return center + transform @ ball_point
 
 
-def adjacency_matrix(positions: np.ndarray, d_c: float) -> list[list[int]]:
-    """Build the undirected adjacency matrix using the strict threshold ``d < d_c``."""
+def _connectivity_threshold(d_c: float, epsilon_c: float) -> float:
+    threshold = d_c - epsilon_c
+    if threshold <= 0.0:
+        raise ValueError(
+            "Initialization connectivity threshold must satisfy d_c - epsilon_c > 0, "
+            f"got d_c={d_c}, epsilon_c={epsilon_c}."
+        )
+    return threshold
+
+
+def adjacency_matrix(positions: np.ndarray, d_c: float, epsilon_c: float) -> list[list[int]]:
+    """Build the undirected adjacency matrix for Graph B using ``d <= d_c - epsilon_c``."""
 
     n_agents = positions.shape[0]
+    threshold = _connectivity_threshold(d_c=d_c, epsilon_c=epsilon_c)
     adjacency = [[0 for _ in range(n_agents)] for _ in range(n_agents)]
     for i in range(n_agents):
         for j in range(i + 1, n_agents):
             dist = float(np.linalg.norm(positions[i] - positions[j]))
-            if dist < d_c:
+            if dist <= threshold:
                 adjacency[i][j] = 1
                 adjacency[j][i] = 1
     return adjacency
@@ -172,8 +183,9 @@ def _build_record(
     region: InitRegion | None,
     safety_distance: float,
     d_c: float,
+    epsilon_c: float,
 ) -> dict[str, Any]:
-    adjacency = adjacency_matrix(positions, d_c=d_c)
+    adjacency = adjacency_matrix(positions, d_c=d_c, epsilon_c=epsilon_c)
     connected = is_connected(adjacency)
     min_distance = _minimum_pairwise_distance(positions)
     return {
@@ -191,6 +203,8 @@ def _build_record(
         },
         "safety_distance": float(safety_distance),
         "d_c": float(d_c),
+        "epsilon_c": float(epsilon_c),
+        "connectivity_threshold": float(_connectivity_threshold(d_c=d_c, epsilon_c=epsilon_c)),
         "adjacency_matrix": adjacency,
         "is_connected": connected,
         "minimum_pairwise_distance": min_distance,
@@ -203,6 +217,7 @@ def validate_initial_positions(
     num_agents: int,
     safety_distance: float,
     d_c: float,
+    epsilon_c: float,
     mode: str,
     seed: int,
     region: InitRegion | None = None,
@@ -215,6 +230,9 @@ def validate_initial_positions(
         )
     if d_c <= 0.0:
         raise ValueError(f"fast_dynamics.d_c must be > 0, got {d_c}.")
+    if epsilon_c < 0.0:
+        raise ValueError(f"fast_dynamics.epsilon_c must be >= 0, got {epsilon_c}.")
+    _connectivity_threshold(d_c=d_c, epsilon_c=epsilon_c)
 
     position_array = _as_position_array(positions)
     if position_array.shape[0] != num_agents:
@@ -248,10 +266,11 @@ def validate_initial_positions(
         region=region,
         safety_distance=safety_distance,
         d_c=d_c,
+        epsilon_c=epsilon_c,
     )
     if not bool(record["is_connected"]):
         raise ValueError(
-            "Initial communication graph under fast_dynamics.d_c must be connected."
+            "Initial communication graph under Graph B (d <= d_c - epsilon_c) must be connected."
         )
     return record
 
@@ -262,6 +281,7 @@ def generate_initial_positions(
     region: InitRegion,
     safety_distance: float,
     d_c: float,
+    epsilon_c: float,
     seed: int,
 ) -> tuple[list[list[float]], dict[str, Any]]:
     """Generate connected, collision-safe initial positions inside the region."""
@@ -270,6 +290,7 @@ def generate_initial_positions(
         raise ValueError(f"agents.num_agents must be > 0, got {num_agents}.")
 
     _region_arrays(region)
+    threshold = _connectivity_threshold(d_c=d_c, epsilon_c=epsilon_c)
     rng = np.random.default_rng(seed)
 
     for _restart_idx in range(region.max_global_restarts):
@@ -288,7 +309,7 @@ def generate_initial_positions(
                 distances = [float(np.linalg.norm(candidate - point)) for point in accepted]
                 if any(distance <= safety_distance for distance in distances):
                     continue
-                if not any(distance < d_c for distance in distances):
+                if not any(distance <= threshold for distance in distances):
                     continue
 
                 accepted.append(candidate)
@@ -312,6 +333,7 @@ def generate_initial_positions(
             num_agents=num_agents,
             safety_distance=safety_distance,
             d_c=d_c,
+            epsilon_c=epsilon_c,
             mode="random_region",
             seed=seed,
             region=region,

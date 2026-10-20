@@ -1,0 +1,61 @@
+# Reproduction of the step-0 local-QP infeasibility reported in
+# logs/run_3-25_distributed_3.log (agent 2, lambda2=0.0071).
+# Parameters: configs/distributed_10_agents.yaml at commit 8a40e90 (2026-03-24),
+# which ran in random_region mode; the sampled initial positions are copied here
+# verbatim from the log so the run is deterministic. No other parameter changed.
+simulation:
+  dt: 0.0001
+  steps: 4000
+  seed: 42
+
+agents:
+  num_agents: 5
+  init_mode: manual # reproduction: positions copied from logs/run_3-25_distributed_3.log 
+  initial_positions:
+    - [-2.463146801617696, 0.19868085015571305]
+    - [-2.060070033396372, -0.4758169323582036]
+    - [-2.4964501016246343, 0.744953669205933]
+    - [-2.695148261093641, -0.06473090857337316]
+    - [-1.6175440217538242, -0.5582635773266609]
+  init_region:
+    center: [-2.0, 0.0]
+    Sigma:
+      - [2.0, 0.0]
+      - [0.0, 0.25]
+    radius: 1.0
+    check_manual_positions: true
+    save_dir: outputs/init_conditions
+    max_sampling_attempts: 2000
+    max_global_restarts: 50
+
+obstacles:
+  obstacles:
+    - center: [-5.0, 1.0]
+      radius: 0.6
+    
+
+target:
+  center: [0.0, 0.0]
+  radius: 1.0
+  Sigma:
+    - [2.0, 0.0]
+    - [0.0, 0.25]
+  epsilon: 0.5
+
+controller:
+  mode: distributed
+  u_max: 20.0 # 20.0
+  safety_distance: 0.3
+  clf_rate: 0.01 # 0.18
+  cbf_rate: 2.0
+  nominal_gain: 1.0
+  enable_connectivity_constraint: True
+  alpha_clf: 1.0 # 1.0
+  alpha_connectivity: 1.0
+
+fast_dynamics:
+  tau: 0.002 # 0.1
+  xi: 0.5 # 1.0
+  d_c: 0.9 # 100
+  eta: 0.1
+  epsilon_c: 0.1

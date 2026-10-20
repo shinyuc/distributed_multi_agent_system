@@ -234,6 +234,7 @@ def load_config(path: str) -> Config:
             region=agents.init_region,
             safety_distance=controller.safety_distance,
             d_c=fast_dynamics.d_c,
+            epsilon_c=fast_dynamics.epsilon_c,
             seed=simulation.seed,
         )
         agents.initial_positions = generated_positions
@@ -243,6 +244,7 @@ def load_config(path: str) -> Config:
             num_agents=agents.num_agents,
             safety_distance=controller.safety_distance,
             d_c=fast_dynamics.d_c,
+            epsilon_c=fast_dynamics.epsilon_c,
             mode="manual",
             seed=simulation.seed,
             region=agents.init_region,
