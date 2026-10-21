@@ -1,7 +1,12 @@
 """Run a config with per-update local-QP feasibility diagnostics.
 
 Usage:
-    python -m diagnostics.run_feasibility --config configs/default.yaml --out outputs/feasibility/default
+    python -m diagnostics.run_feasibility --config configs/default_5_agents.yaml
+        -> outputs/feasibility/<YYYYmmdd_HHMMSS_ffffff>_default_5_agents_p<pid>_<rand>/
+
+    --output-root DIR   parent of the unique run directory (default outputs/feasibility)
+    --out DIR           explicit run directory; must be new or empty unless --overwrite
+    --overwrite         with --out: move existing contents to DIR.replaced_<timestamp> (never deleted)
 
 The simulation is built exactly as in main.py (same parameters, same controller,
 same simulator). The only differences are observational: the recorder is attached
@@ -21,6 +26,7 @@ import io
 import json
 import os
 import platform
+import shutil
 import subprocess
 import sys
 import time
@@ -41,6 +47,27 @@ from models.agent import AgentState
 from models.environment import CircularObstacle, Environment, TargetRegion
 from simulation.reporting import build_run_report
 from simulation.simulator import Simulator
+from utils.run_dirs import OutputDirExistsError, make_unique_run_dir, prepare_explicit_dir
+
+
+class _Tee(io.TextIOBase):
+    """Write to the original stream and to a log file in the run directory."""
+
+    def __init__(self, stream, path: Path):
+        self._stream = stream
+        self._file = open(path, "a", encoding="utf-8")
+
+    def write(self, text: str) -> int:
+        self._stream.write(text)
+        self._file.write(text)
+        return len(text)
+
+    def flush(self) -> None:
+        self._stream.flush()
+        self._file.flush()
+
+    def close_log(self) -> None:
+        self._file.close()
 
 
 def _git_commit() -> str | None:
@@ -86,7 +113,12 @@ def build(cfg):
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
-    parser.add_argument("--out", required=True)
+    parser.add_argument("--out", default=None,
+                        help="explicit run directory (must be new or empty unless --overwrite)")
+    parser.add_argument("--output-root", default="outputs/feasibility",
+                        help="parent of the unique timestamped run directory used when --out is omitted")
+    parser.add_argument("--overwrite", action="store_true",
+                        help="with --out: move an existing non-empty directory aside (renamed, never deleted)")
     parser.add_argument("--max-steps", type=int, default=None, help="smoke tests only")
     parser.add_argument("--keep-stdout", action="store_true", help="gzip the simulator's debug prints")
     parser.add_argument("--feas-tol", type=float, default=Tolerances.feas_tol)
@@ -94,15 +126,32 @@ def main() -> None:
     parser.add_argument("--progress-every", type=int, default=5000)
     args = parser.parse_args()
 
+    # Claim a fresh run directory before doing anything else.
+    moved_to = None
+    try:
+        if args.out is not None:
+            out_dir, moved_to = prepare_explicit_dir(args.out, overwrite=args.overwrite)
+        else:
+            out_dir = make_unique_run_dir(args.output_root, Path(args.config).stem)
+    except OutputDirExistsError as exc:
+        print(f"[OUTPUT ERROR] {exc}", file=sys.stderr)
+        sys.exit(2)
+    tee = _Tee(sys.stderr, out_dir / "progress.log")
+    sys.stderr = tee
+    print(f"[feasibility] run directory: {out_dir}", file=sys.stderr, flush=True)
+    with (out_dir / "run_meta.json").open("w", encoding="utf-8") as f:
+        json.dump({"status": "running", "config_path": args.config, "output_dir": str(out_dir),
+                   "started_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "argv": sys.argv}, f, indent=2)
+
     cfg = load_config(args.config)
+    if cfg.agents.initialization_log_path:
+        shutil.copy2(cfg.agents.initialization_log_path, out_dir / "initial_conditions.json")
     if args.max_steps is not None:
         cfg.simulation.steps = min(cfg.simulation.steps, args.max_steps)
     env, controller, simulator = build(cfg)
     if not isinstance(controller, DistributedController):
         raise SystemExit("Feasibility diagnostics apply to controller.mode == 'distributed' only.")
 
-    out_dir = Path(args.out)
-    out_dir.mkdir(parents=True, exist_ok=True)
     tol = Tolerances(feas_tol=args.feas_tol, viol_tol=args.viol_tol)
     recorder = FeasibilityRecorder(
         out_dir,
@@ -120,7 +169,11 @@ def main() -> None:
     controller.qp_observer = recorder
 
     meta = {
+        "status": "running",
         "config_path": args.config,
+        "output_dir": str(out_dir),
+        "previous_contents_moved_to": None if moved_to is None else str(moved_to),
+        "argv": sys.argv,
         "steps_configured": cfg.simulation.steps,
         "max_steps_override": args.max_steps,
         "dt": cfg.simulation.dt,
@@ -209,6 +262,14 @@ def main() -> None:
                                                    "first_terminating_failure", "termination_reason",
                                                    "horizon_completed", "run_error")}, indent=2, default=str),
           file=sys.stderr)
+    meta.update(status="finished", verdict=summary.get("verdict"),
+                horizon_completed=summary.get("horizon_completed"),
+                termination_reason=summary.get("termination_reason"))
+    with (out_dir / "run_meta.json").open("w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2)
+    print(f"[feasibility] run directory: {out_dir}", file=sys.stderr, flush=True)
+    sys.stderr = tee._stream
+    tee.close_log()
     if not summary.get("horizon_completed"):
         sys.exit(1)
 

@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import shutil
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -17,6 +19,7 @@ from models.agent import AgentState
 from models.environment import CircularObstacle, Environment, TargetRegion
 from simulation.reporting import build_run_report, interval_note, short_status
 from simulation.simulator import Simulator
+from utils.run_dirs import OutputDirExistsError, make_unique_run_dir, prepare_explicit_dir
 from visualization.plotter import plot_trajectories
 
 
@@ -262,12 +265,61 @@ def _plot_connectivity_series(
     plt.close(fig)
 
 
+def _git_commit() -> str | None:
+    try:
+        return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL).strip()
+    except Exception:
+        return None
+
+
+def _write_run_meta(out_dir: Path, meta: dict) -> None:
+    with (out_dir / "run_meta.json").open("w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2, default=str)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/default.yaml")
+    parser.add_argument(
+        "--output-root", default="outputs",
+        help="parent directory; each run gets a new <timestamp>_<config>_p<pid>_<rand> directory inside it",
+    )
+    parser.add_argument(
+        "--out", default=None,
+        help="explicit run directory (must be new or empty unless --overwrite)",
+    )
+    parser.add_argument(
+        "--overwrite", action="store_true",
+        help="with --out: move an existing non-empty directory aside (renamed, never deleted)",
+    )
     args = parser.parse_args()
 
+    # Create the run directory before anything else so results can never land in a
+    # directory that holds another run's files.
+    moved_to = None
+    try:
+        if args.out is not None:
+            out_dir, moved_to = prepare_explicit_dir(args.out, overwrite=args.overwrite)
+        else:
+            out_dir = make_unique_run_dir(args.output_root, Path(args.config).stem)
+    except OutputDirExistsError as exc:
+        print(f"[OUTPUT ERROR] {exc}", file=sys.stderr)
+        sys.exit(2)
+    run_meta = {
+        "status": "running",
+        "config_path": args.config,
+        "output_dir": str(out_dir),
+        "previous_contents_moved_to": None if moved_to is None else str(moved_to),
+        "started_at": datetime.now().isoformat(timespec="microseconds"),
+        "argv": sys.argv,
+        "git_commit": _git_commit(),
+    }
+    _write_run_meta(out_dir, run_meta)
+    print(f"outputs: {out_dir}")
+
     cfg = load_config(args.config)
+    if cfg.agents.initialization_log_path:
+        shutil.copy2(cfg.agents.initialization_log_path, out_dir / "initial_conditions.json")
     # ######## check
     # print("[DEBUG main.py] enable_connectivity_constraint =", cfg.controller.enable_connectivity_constraint)
     # ########
@@ -373,9 +425,6 @@ def main() -> None:
             pair=first_any_pair,
             violation_step=first_any_step,
         )
-
-    out_dir = Path("outputs") / datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_dir.mkdir(parents=True, exist_ok=True)
 
     with (out_dir / "trajectories.json").open("w", encoding="utf-8") as f:
         json.dump(
@@ -503,6 +552,14 @@ def main() -> None:
     print(f"task completed AND full horizon completed: {task['task_completed_and_horizon_completed']}")
     print(f"[RUN STATUS] {report['verdict']}")
     print(f"outputs: {out_dir}")
+    run_meta.update(
+        status="finished",
+        finished_at=datetime.now().isoformat(timespec="microseconds"),
+        verdict=report["verdict"],
+        horizon_completed=report["horizon"]["horizon_completed"],
+        termination_reason=result.termination_reason,
+    )
+    _write_run_meta(out_dir, run_meta)
     if early:
         sys.exit(1)
 

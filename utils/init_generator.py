@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -359,11 +360,15 @@ def save_initialization_record(
     save_dir.mkdir(parents=True, exist_ok=True)
 
     config_stem = Path(config_path).stem
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = (
-        f"{config_stem}_{record['mode']}_seed{record['seed']}_{timestamp}.json"
-    )
-    output_path = save_dir / filename
-    with output_path.open("w", encoding="utf-8") as file_obj:
-        json.dump(record, file_obj, indent=2)
-    return str(output_path)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    base = f"{config_stem}_{record['mode']}_seed{record['seed']}_{timestamp}_p{os.getpid()}"
+    # Exclusive create ("x"): two processes can never write the same record file.
+    for attempt in range(100):
+        output_path = save_dir / (f"{base}.json" if attempt == 0 else f"{base}_{attempt}.json")
+        try:
+            with output_path.open("x", encoding="utf-8") as file_obj:
+                json.dump(record, file_obj, indent=2)
+        except FileExistsError:
+            continue
+        return str(output_path)
+    raise RuntimeError(f"Could not create a unique initialization record in {save_dir}.")
