@@ -25,3 +25,6 @@ outputs/
 
 # accidental files
 1python
+
+# Local notes, specs, and draft documents
+/docs/
