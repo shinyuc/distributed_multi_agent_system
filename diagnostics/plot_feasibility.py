@@ -236,10 +236,11 @@ def plot_run(run_dir: Path, eta: float | None, n_bins: int = 3000) -> Path:
     cc = summary["class_counts"]
     fig.suptitle(
         "\n".join(textwrap.wrap(f"{meta.get('config_path', run_dir.name)} — {term['verdict']}", 120)) + "\n"
-        f"{summary['qp_solves']} local QPs over {summary['steps_recorded']} control updates: "
-        f"verified solved {cc['solved']} (+{cc['solved_inaccurate']} inaccurate), infeasible {cc['infeasible']}, "
-        f"numerical {cc['numerical_failure']}, borderline {cc['borderline']}, "
-        f"OSQP/LP disagreement {cc.get('inconsistent', 0)}, LP error {cc.get('lp_error', 0)}",
+        + "\n".join(textwrap.wrap(
+            f"{summary['qp_solves']} local QPs over {summary['steps_recorded']} control updates: "
+            f"verified solved {cc['solved']} (+{cc['solved_inaccurate']} inaccurate), infeasible {cc['infeasible']}, "
+            f"numerical {cc['numerical_failure']}, borderline {cc['borderline']}, "
+            f"OSQP/LP disagreement {cc.get('inconsistent', 0)}, LP error {cc.get('lp_error', 0)}", 120)),
         x=0.01, ha="left", fontsize=9.5, color=CRITICAL if not term["completed"] else INK,
     )
     fig.tight_layout(rect=(0, 0, 1, 0.96))
