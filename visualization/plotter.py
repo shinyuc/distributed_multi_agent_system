@@ -49,12 +49,17 @@ def plot_trajectories(
     init_region: InitRegion | None = None,
     save_path: str | Path | None = None,
     show: bool = False,
+    status_text: str | None = None,
+    terminated_early: bool = False,
 ) -> None:
     """Plot multi-agent trajectories in a 2D environment.
 
     Args:
         env: Environment containing agents, obstacles, and target region.
         trajectories: trajectories[t][i] = (x, y) position of agent i at time t.
+        status_text: completion/termination line shown under the title.
+        terminated_early: if True, the final markers are labelled as the last
+            simulated state (not the end of the configured horizon).
     """
 
     if not trajectories:
@@ -140,7 +145,11 @@ def plot_trajectories(
 
     ax.set_xlabel("x")
     ax.set_ylabel("y")
-    ax.set_title("Agent Trajectories")
+    ax.set_title("Agent Trajectories" + ("" if status_text is None else f"\n{status_text}"),
+                 color="black", fontsize=10 if status_text else None)
+    if terminated_early:
+        ax.text(0.01, 0.01, "x = last simulated state (run terminated early)", transform=ax.transAxes,
+                fontsize=8, color="tab:red", va="bottom")
     ax.set_aspect("equal", adjustable="box")
     ax.grid(True, alpha=0.3)
     ax.legend()

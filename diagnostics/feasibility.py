@@ -37,6 +37,15 @@ from scipy.optimize import linprog
 GROUPS: tuple[str, ...] = ("pairwise", "obstacle", "connectivity", "clf")
 ACTUATOR_GROUPS = {"actuator", "bounds"}
 
+# Class meanings (codes are stable; new classes are appended):
+#   solved             OSQP optimal           and LP verified feasible (s* < -feas_tol)
+#   solved_inaccurate  OSQP optimal_inaccurate and LP verified feasible
+#   borderline         |s*| <= feas_tol (any OSQP status)
+#   numerical_failure  OSQP failed (non-optimal status/exception) but LP says feasible
+#   infeasible         OSQP failed and LP confirms infeasible (s* > feas_tol)
+#   inconsistent       OSQP reported success but LP says infeasible (disagreement;
+#                      the OSQP input is still applied - diagnostics never intervene)
+#   lp_error           the auxiliary LP itself failed; feasibility is NOT verified
 CLASSES: tuple[str, ...] = (
     "solved",
     "solved_inaccurate",
@@ -44,7 +53,9 @@ CLASSES: tuple[str, ...] = (
     "numerical_failure",
     "infeasible",
     "inconsistent",
+    "lp_error",
 )
+VERIFIED_SOLVED = ("solved", "solved_inaccurate")
 CLASS_CODE = {name: idx for idx, name in enumerate(CLASSES)}
 SOLVER_SUCCESS = {"optimal", "optimal_inaccurate"}
 
@@ -177,6 +188,8 @@ def lp_verdict(s_star: float, tol: Tolerances) -> str:
 
 def classify(solver_status: str | None, solver_success: bool, s_star: float, tol: Tolerances) -> str:
     verdict = lp_verdict(s_star, tol)
+    if verdict == "unknown":
+        return "lp_error"
     if verdict == "borderline":
         return "borderline"
     if solver_success:
@@ -185,9 +198,7 @@ def classify(solver_status: str | None, solver_success: bool, s_star: float, tol
         return "solved_inaccurate" if solver_status == "optimal_inaccurate" else "solved"
     if verdict == "infeasible":
         return "infeasible"
-    if verdict == "feasible":
-        return "numerical_failure"
-    return "inconsistent"
+    return "numerical_failure"
 
 
 def constraint_violation(

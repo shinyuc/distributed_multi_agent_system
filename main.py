@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from config import load_config
 from controller.controller_factory import build_controller
 from models.agent import AgentState
 from models.environment import CircularObstacle, Environment, TargetRegion
+from simulation.reporting import build_run_report, interval_note, short_status
 from simulation.simulator import Simulator
 from visualization.plotter import plot_trajectories
 
@@ -237,13 +239,23 @@ def _plot_connectivity_series(
     title: str,
     ylabel: str,
     save_path: Path,
+    t_configured: float | None = None,
+    status_text: str | None = None,
+    terminated_early: bool = False,
 ) -> None:
     times = [k * dt for k in range(len(values))]
     fig, ax = plt.subplots(figsize=(7, 4))
-    ax.plot(times, values, linewidth=2)
+    ax.plot(times, values, linewidth=2, marker="o" if len(values) < 30 else None)
+    if t_configured is not None and t_configured > 0:
+        ax.set_xlim(0.0, t_configured)
+        if terminated_early:
+            t_end = times[-1] if times else 0.0
+            ax.axvline(t_end, color="tab:red", linewidth=1.2, linestyle="--")
+            ax.axvspan(t_end, t_configured, color="0.85", alpha=0.6, linewidth=0)
+            ax.text(t_end, ax.get_ylim()[1], " terminated", color="tab:red", fontsize=8, va="top")
     ax.set_xlabel("time [s]")
     ax.set_ylabel(ylabel)
-    ax.set_title(title)
+    ax.set_title(title + ("" if status_text is None else f"\n{status_text}"), fontsize=10)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
     fig.savefig(save_path, dpi=200, bbox_inches="tight")
@@ -295,24 +307,42 @@ def main() -> None:
     )
 
     result = simulator.run()
-    if result.stopped_early:
+    report = build_run_report(
+        result,
+        dt=cfg.simulation.dt,
+        safety_distance=cfg.controller.safety_distance,
+        d_c=cfg.fast_dynamics.d_c,
+        epsilon_c=cfg.fast_dynamics.epsilon_c,
+        target_center=cfg.target.center,
+        target_sigma=cfg.target.Sigma,
+    )
+    early = not report["horizon"]["horizon_completed"]
+    note = interval_note(report)
+    status = short_status(report)
+    print("=" * 80)
+    print(f"[RUN STATUS] {report['verdict']}")
+    for failure in result.qp_failures:
         print(
-            f"[QP INFEASIBLE] simulation stopped early at step={result.infeasible_step}, "
-            f"agent={result.infeasible_agent_id}"
+            f"[RUN STATUS] failed QP: step={failure['step']}, agent={failure['agent_id']}, "
+            f"solver_status={failure['solver_status']}, kind={failure.get('failure_kind')}"
         )
+    if result.termination_exception is not None:
+        print(f"[RUN STATUS] exception: {result.termination_exception['type']}: "
+              f"{result.termination_exception['message']}")
+    print("=" * 80)
     min_dist, min_step, min_pair = _find_global_min_inter_agent_distance(result.trajectories)
     safety_distance = cfg.controller.safety_distance
     violation = (min_dist is not None) and (min_dist < safety_distance)
-    print("minimum inter-agent distance (scan):", f"{min_dist:.6f}" if min_dist is not None else "N/A")
+    print(f"minimum inter-agent distance ({note}):", f"{min_dist:.6f}" if min_dist is not None else "N/A")
     print("safety distance:", f"{safety_distance:.6f}")
-    print("violation happened:", violation)
+    print(f"violation happened ({note}):", violation)
     print("time step:", min_step)
     print("agent pair:", min_pair)
     first_any_step, first_any_pair, first_any_dist = _find_first_violation_any_pair(
         trajectories=result.trajectories,
         safety_distance=safety_distance,
     )
-    print("first violation (any pair) step:", first_any_step)
+    print(f"first violation (any pair) step ({note}):", first_any_step)
     print("first violation (any pair) pair:", first_any_pair)
     print(
         "first violation (any pair) distance:",
@@ -355,9 +385,22 @@ def main() -> None:
                 "initialization_log_path": cfg.agents.initialization_log_path,
                 "dt": cfg.simulation.dt,
                 "steps": cfg.simulation.steps,
+                "steps_configured": result.steps_configured,
+                "steps_completed": result.steps_completed,
+                "horizon_completed": result.horizon_completed,
+                "termination_reason": result.termination_reason,
+                "termination_step": result.termination_step,
+                "local_qp_failure_kind": result.local_qp_failure_kind,
+                "qp_failures": result.qp_failures,
+                "termination_exception": result.termination_exception,
                 "stopped_early": result.stopped_early,
                 "infeasible_step": result.infeasible_step,
                 "infeasible_agent_id": result.infeasible_agent_id,
+                "infeasible_agent_ids": result.infeasible_agent_ids,
+                # control_history: applied inputs only (len == steps_completed per agent).
+                "unapplied_controls_at_termination": {
+                    str(k): list(v) for k, v in result.unapplied_controls.items()
+                },
                 "trajectories": result.trajectories,
                 "min_obstacle_clearance": result.min_obstacle_clearance,
                 "min_inter_agent_distance": result.min_inter_agent_distance,
@@ -375,9 +418,14 @@ def main() -> None:
             f,
             indent=2,
         )
+    with (out_dir / "run_report.json").open("w", encoding="utf-8") as f:
+        json.dump(report, f, indent=2, default=str)
     if result.infeasible_diagnostics is not None:
         with (out_dir / "infeasible_diagnostics.json").open("w", encoding="utf-8") as f:
             json.dump(result.infeasible_diagnostics, f, indent=2)
+    if result.qp_failure_diagnostics:
+        with (out_dir / "infeasible_diagnostics_all_agents.json").open("w", encoding="utf-8") as f:
+            json.dump({str(k): v for k, v in result.qp_failure_diagnostics.items()}, f, indent=2, default=str)
     centralized_debug_records = getattr(controller, "centralized_debug_records", None)
     if isinstance(centralized_debug_records, dict):
         with (out_dir / "centralized_debug_records.json").open("w", encoding="utf-8") as f:
@@ -393,16 +441,18 @@ def main() -> None:
         init_region=init_region_to_plot,
         save_path=out_dir / "trajectories.png",
         show=False,
+        status_text=status,
+        terminated_early=early,
     )
 
     overall_obstacle = _overall_min(result.min_obstacle_clearance)
     overall_inter_agent = _overall_min(result.min_inter_agent_distance)
     print(
-        "overall minimum obstacle clearance:",
+        f"overall minimum obstacle clearance ({note}):",
         f"{overall_obstacle:.6f}" if overall_obstacle is not None else "N/A",
     )
     print(
-        "overall minimum inter-agent distance:",
+        f"overall minimum inter-agent distance ({note}):",
         f"{overall_inter_agent:.6f}" if overall_inter_agent is not None else "N/A",
     )
     tol_conn = 1e-8
@@ -410,11 +460,11 @@ def main() -> None:
     min_lambda2_cons = min(result.lambda2_cons) if result.lambda2_cons else 0.0
     comm_connected_all_time = all(v > tol_conn for v in result.lambda2_comm)
     cons_connected_all_time = all(v > tol_conn for v in result.lambda2_cons)
-    print("minimum lambda2_comm over time:", f"{min_lambda2_comm:.6e}")
-    print("minimum lambda2_cons over time:", f"{min_lambda2_cons:.6e}")
-    print("Graph A (||x_i-x_j|| < d_c) connected for all time:", comm_connected_all_time)
+    print(f"minimum lambda2_comm ({note}):", f"{min_lambda2_comm:.6e}")
+    print(f"minimum lambda2_cons ({note}):", f"{min_lambda2_cons:.6e}")
+    print(f"Graph A (||x_i-x_j|| < d_c) connected at all sampled times ({note}):", comm_connected_all_time)
     print(
-        "Graph B (||x_i-x_j|| <= d_c-epsilon_c) connected for all time:",
+        f"Graph B (||x_i-x_j|| <= d_c-epsilon_c) connected at all sampled times ({note}):",
         cons_connected_all_time,
     )
 
@@ -424,6 +474,9 @@ def main() -> None:
         title="Algebraic Connectivity (Communication Graph)",
         ylabel="lambda2_comm",
         save_path=out_dir / "lambda2_comm.png",
+        t_configured=report["horizon"]["t_configured"],
+        status_text=status,
+        terminated_early=early,
     )
     _plot_connectivity_series(
         values=result.lambda2_cons,
@@ -431,14 +484,27 @@ def main() -> None:
         title="Algebraic Connectivity (Conservative Graph)",
         ylabel="lambda2_cons",
         save_path=out_dir / "lambda2_cons.png",
+        t_configured=report["horizon"]["t_configured"],
+        status_text=status,
+        terminated_early=early,
     )
     for agent_id in sorted(result.first_target_entry_step):
         first_step = result.first_target_entry_step[agent_id]
         entered = first_step is not None
         print(
-            f"agent {agent_id} entered target region: {entered}; "
+            f"agent {agent_id} entered target region ({note}): {entered}; "
             f"first entry step: {first_step}"
         )
+    task = report["task"]
+    print(
+        f"all agents inside target at final simulated state ({note}): "
+        f"{task['all_agents_inside_target_at_final_simulated_state']}"
+    )
+    print(f"task completed AND full horizon completed: {task['task_completed_and_horizon_completed']}")
+    print(f"[RUN STATUS] {report['verdict']}")
+    print(f"outputs: {out_dir}")
+    if early:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import copy
+import traceback
 from dataclasses import dataclass, field
 from math import sqrt
+from typing import Any
 
 from controller.base_controller import Controller
 from controller.centralized_controller import CentralizedQPInfeasibleError
@@ -14,6 +16,30 @@ from models.agent import AgentState, Vector2
 from models.environment import Environment
 from models.fast_state import FastState, init_fast_state_complete_graph
 import numpy as np
+
+
+TERMINATION_REASONS = (
+    "completed",               # every configured step was applied
+    "local_qp_failure",        # >= 1 local QP solve failed (see local_qp_failure_kind)
+    "centralized_qp_failure",  # the joint QP failed (centralized mode)
+    "numerical_guard",         # fast-state explosion guard tripped
+    "exception",               # any other unexpected exception
+)
+SOLVER_INFEASIBLE_STATUSES = {"infeasible", "infeasible_inaccurate"}
+
+
+class NumericalGuardError(RuntimeError):
+    """Raised by the fast-state explosion guard (a RuntimeError, as before)."""
+
+
+def _solver_status_from_reason(reason: object) -> str:
+    """Recover the raw solver status from the controller's failure reason string."""
+    text = str(reason)
+    if text.startswith("solver status="):
+        return text[len("solver status="):]
+    if text.startswith("exception"):
+        return "exception"
+    return "other"
 
 
 @dataclass
@@ -41,6 +67,21 @@ class SimulationResult:
     # All agents whose local QP failed at infeasible_step (all agents are solved
     # before the simulation stops).
     infeasible_agent_ids: list[int] = field(default_factory=list)
+    # Termination bookkeeping. control_history holds applied inputs only; inputs
+    # computed at the terminating step but never applied are in unapplied_controls.
+    termination_reason: str = "completed"
+    termination_step: int | None = None
+    steps_configured: int = 0
+    steps_completed: int = 0
+    local_qp_failure_kind: str | None = None
+    qp_failures: list[dict[str, Any]] = field(default_factory=list)
+    qp_failure_diagnostics: dict[int, dict[str, object]] = field(default_factory=dict)
+    unapplied_controls: dict[int, Vector2] = field(default_factory=dict)
+    termination_exception: dict[str, str] | None = None
+
+    @property
+    def horizon_completed(self) -> bool:
+        return self.termination_reason == "completed" and self.steps_completed == self.steps_configured
 
 
 class Simulator:
@@ -199,7 +240,7 @@ class Simulator:
     ) -> None:
         def _raise(var_name: str, value: float) -> None:
             print(f"[NUMERICAL_GUARD] step={step_idx} agent={agent_id} variable={var_name} value={value}")
-            raise RuntimeError(
+            raise NumericalGuardError(
                 f"Numerical explosion detected at step={step_idx}, agent={agent_id}, "
                 f"variable={var_name}, value={value}, threshold={threshold}"
             )
@@ -466,6 +507,15 @@ class Simulator:
         infeasible_agent_id: int | None = None
         infeasible_diagnostics: dict[str, object] | None = None
         infeasible_agent_ids: list[int] = []
+        termination_reason = "completed"
+        termination_step: int | None = None
+        local_qp_failure_kind: str | None = None
+        qp_failures: list[dict[str, Any]] = []
+        qp_failure_diagnostics: dict[int, dict[str, object]] = {}
+        unapplied_controls: dict[int, Vector2] = {}
+        termination_exception: dict[str, str] | None = None
+        controls: dict[int, Vector2] = {}
+        agents_updated = 0
         fast_states_step_4_snapshot: dict[int, FastState] | None = None
 
         positions = self.env.agent_positions()
@@ -479,65 +529,27 @@ class Simulator:
         self._debug_print_target_phi(step_idx=0)
         self._record_fast_history_snapshot(fast_history)
 
-        for step_idx in range(self.steps):
-            # a) Compute all control inputs for the current slow state.
-            controls: dict[int, Vector2] = {}
-            all_agent_states = self._agent_state_map()
-            prev_fast_states = self.fast_states
-            _, _, lambda_2_runtime, v2_runtime = self._compute_connectivity_runtime_spectrum(
-                all_agent_states
-            )
-            print(
-                f"[DEBUG spectrum] step={step_idx}, lambda2={lambda_2_runtime:.6f}, "
-                f"v2={[(i, v2_runtime[i]) for i in sorted(v2_runtime)]}"
+        step_idx = -1
+        try:
+            for step_idx in range(self.steps):
+                # a) Compute all control inputs for the current slow state.
+                controls = {}
+                agents_updated = 0
+                all_agent_states = self._agent_state_map()
+                prev_fast_states = self.fast_states
+                _, _, lambda_2_runtime, v2_runtime = self._compute_connectivity_runtime_spectrum(
+                    all_agent_states
                 )
-            compute_controls = getattr(self.controller, "compute_controls", None)
-            if callable(compute_controls):
-                try:
-                    controls = compute_controls(
-                        self.env,
-                        step_idx=step_idx,
-                        all_fast_states=prev_fast_states,
-                        all_agent_states=all_agent_states,
-                        d_c=self.fast_d_c,
-                        gamma_1=self.fast_gamma_1,
-                        d_0=self.fast_d_0,
-                        target_center=self.fast_target_center,
-                        sigma=self.fast_sigma,
-                        epsilon=self.fast_epsilon,
-                        n_agents=len(self.agents),
-                        eta=self.fast_eta,
-                        epsilon_c=self.fast_epsilon_c,
-                        lambda_2=lambda_2_runtime,
-                        v2=v2_runtime,
-                        xi=self.fast_xi,
+                print(
+                    f"[DEBUG spectrum] step={step_idx}, lambda2={lambda_2_runtime:.6f}, "
+                    f"v2={[(i, v2_runtime[i]) for i in sorted(v2_runtime)]}"
                     )
-                except CentralizedQPInfeasibleError as exc:
-                    stopped_early = True
-                    infeasible_step = step_idx if exc.step_idx is None else int(exc.step_idx)
-                    infeasible_agent_id = None
-                    infeasible_diagnostics = exc.diagnostics
-                    self._print_infeasibility_diagnostics(exc.diagnostics)
-                    break
-                for agent in self.agents:
-                    ux, uy = controls[agent.agent_id]
-                    u_norm = sqrt(ux * ux + uy * uy)
-                    print(
-                        f"[DEBUG control] step={step_idx}, agent={agent.agent_id}, "
-                        f"u=({ux:.6f}, {uy:.6f}), norm={u_norm:.6f}"
-                    )
-                    control_history[agent.agent_id].append(controls[agent.agent_id])
-            else:
-                # Solve every agent's local QP at this step, then stop if any failed.
-                # No fallback input is applied and the state is not advanced.
-                step_failures: list[LocalQPInfeasibleError] = []
-                for agent in self.agents:
+                compute_controls = getattr(self.controller, "compute_controls", None)
+                if callable(compute_controls):
                     try:
-                        controls[agent.agent_id] = self.controller.compute_control(
-                            agent,
+                        controls = compute_controls(
                             self.env,
                             step_idx=step_idx,
-                            fast_state=prev_fast_states[agent.agent_id],
                             all_fast_states=prev_fast_states,
                             all_agent_states=all_agent_states,
                             d_c=self.fast_d_c,
@@ -551,195 +563,282 @@ class Simulator:
                             epsilon_c=self.fast_epsilon_c,
                             lambda_2=lambda_2_runtime,
                             v2=v2_runtime,
+                            xi=self.fast_xi,
                         )
-                    except LocalQPInfeasibleError as exc:
-                        step_failures.append(exc)
+                    except CentralizedQPInfeasibleError as exc:
+                        stopped_early = True
+                        infeasible_step = step_idx if exc.step_idx is None else int(exc.step_idx)
+                        infeasible_agent_id = None
+                        infeasible_diagnostics = exc.diagnostics
+                        termination_reason = "centralized_qp_failure"
+                        termination_step = step_idx
+                        qp_failures = [{
+                            "agent_id": None,
+                            "step": step_idx,
+                            "solver_status": _solver_status_from_reason(exc.diagnostics.get("solver_status")),
+                            "solver_reason": str(exc.diagnostics.get("solver_status")),
+                        }]
                         self._print_infeasibility_diagnostics(exc.diagnostics)
-                        continue
-                    ux, uy = controls[agent.agent_id]
-                    u_norm = sqrt(ux * ux + uy * uy)
-                    print(
-                        f"[DEBUG control] step={step_idx}, agent={agent.agent_id}, "
-                        f"u=({ux:.6f}, {uy:.6f}), norm={u_norm:.6f}"
-                    )
-                    control_history[agent.agent_id].append(controls[agent.agent_id])
-                if step_failures:
-                    first = step_failures[0]
-                    stopped_early = True
-                    infeasible_step = step_idx if first.step_idx is None else int(first.step_idx)
-                    infeasible_agent_id = int(first.agent_id)
-                    infeasible_agent_ids = [int(exc.agent_id) for exc in step_failures]
-                    infeasible_diagnostics = first.diagnostics
-            if stopped_early:
-                break
-
-            # b) Update all fast states (synchronously).
-            if getattr(self.controller, "uses_fast_dynamics", True):
-                updated_fast_states: dict[int, FastState] = {}
-                for agent in self.agents:
-                    updated_fast_states[agent.agent_id] = update_fast_state(
-                        i=agent.agent_id,
-                        state=prev_fast_states[agent.agent_id],
-                        step_idx=step_idx,
-                        all_fast_states=prev_fast_states,
-                        all_agent_states=all_agent_states,
-                        dt=self.dt,
-                        tau=self.fast_tau,
-                        xi=self.fast_xi,
-                        d_c=self.fast_d_c,
-                        target_center=self.fast_target_center,
-                        sigma=self.fast_sigma,
-                        epsilon=self.fast_epsilon,
-                        gamma_1=self.fast_gamma_1,
-                        gamma_2=self.fast_gamma_1,
-                        gamma_3=getattr(self.controller, "config").clf_rate,
-                        d_0=self.fast_d_0,
-                        alpha_clf=getattr(self.controller, "config").alpha_clf,
-                        x_i=all_agent_states[agent.agent_id].position,
-                        u_i=controls[agent.agent_id],
-                        obstacles=self.env.obstacles,
-                        u_max=getattr(self.controller, "config").u_max,
-                        eta=self.fast_eta,
-                        epsilon_c=self.fast_epsilon_c,
-                        lambda_2=lambda_2_runtime,
-                        v2=v2_runtime,
-                        n_agents=len(self.agents),
-                    )
-                for agent in self.agents:
-                    self._check_fast_state_explosion(
-                        step_idx=step_idx,
-                        agent_id=agent.agent_id,
-                        state=updated_fast_states[agent.agent_id],
-                    )
-                self.fast_states = updated_fast_states
-                if step_idx == 4:
-                    fast_states_step_4_snapshot = copy.deepcopy(self.fast_states)
-                    sample_agent_id = self.agents[0].agent_id if self.agents else None
-                    print("[DEBUG fast compare] stored deepcopy snapshot at step=4")
-                    print(
-                        f"[DEBUG fast compare] step=4 snapshot_id={id(fast_states_step_4_snapshot)}, "
-                        f"current_id={id(self.fast_states)}"
-                    )
-                    if sample_agent_id is not None:
-                        snapshot_agent = fast_states_step_4_snapshot[sample_agent_id]
-                        current_agent = self.fast_states[sample_agent_id]
+                        break
+                    for agent in self.agents:
+                        ux, uy = controls[agent.agent_id]
+                        u_norm = sqrt(ux * ux + uy * uy)
                         print(
-                            f"[DEBUG fast compare] step=4 sample_agent={sample_agent_id}, "
-                            f"snapshot_agent_id={id(snapshot_agent)}, current_agent_id={id(current_agent)}"
+                            f"[DEBUG control] step={step_idx}, agent={agent.agent_id}, "
+                            f"u=({ux:.6f}, {uy:.6f}), norm={u_norm:.6f}"
                         )
-                        if snapshot_agent.z_pair:
-                            sample_neighbor_id = next(iter(snapshot_agent.z_pair))
+                else:
+                    # Solve every agent's local QP at this step, then stop if any failed.
+                    # No fallback input is applied and the state is not advanced.
+                    step_failures: list[LocalQPInfeasibleError] = []
+                    for agent in self.agents:
+                        try:
+                            controls[agent.agent_id] = self.controller.compute_control(
+                                agent,
+                                self.env,
+                                step_idx=step_idx,
+                                fast_state=prev_fast_states[agent.agent_id],
+                                all_fast_states=prev_fast_states,
+                                all_agent_states=all_agent_states,
+                                d_c=self.fast_d_c,
+                                gamma_1=self.fast_gamma_1,
+                                d_0=self.fast_d_0,
+                                target_center=self.fast_target_center,
+                                sigma=self.fast_sigma,
+                                epsilon=self.fast_epsilon,
+                                n_agents=len(self.agents),
+                                eta=self.fast_eta,
+                                epsilon_c=self.fast_epsilon_c,
+                                lambda_2=lambda_2_runtime,
+                                v2=v2_runtime,
+                            )
+                        except LocalQPInfeasibleError as exc:
+                            step_failures.append(exc)
+                            self._print_infeasibility_diagnostics(exc.diagnostics)
+                            continue
+                        ux, uy = controls[agent.agent_id]
+                        u_norm = sqrt(ux * ux + uy * uy)
+                        print(
+                            f"[DEBUG control] step={step_idx}, agent={agent.agent_id}, "
+                            f"u=({ux:.6f}, {uy:.6f}), norm={u_norm:.6f}"
+                        )
+                    if step_failures:
+                        first = step_failures[0]
+                        stopped_early = True
+                        infeasible_step = step_idx if first.step_idx is None else int(first.step_idx)
+                        infeasible_agent_id = int(first.agent_id)
+                        infeasible_agent_ids = [int(exc.agent_id) for exc in step_failures]
+                        infeasible_diagnostics = first.diagnostics
+                        termination_reason = "local_qp_failure"
+                        termination_step = step_idx
+                        for exc in step_failures:
+                            status = _solver_status_from_reason(exc.diagnostics.get("solver_status"))
+                            qp_failures.append({
+                                "agent_id": int(exc.agent_id),
+                                "step": step_idx,
+                                "solver_status": status,
+                                "solver_reason": str(exc.diagnostics.get("solver_status")),
+                                "failure_kind": (
+                                    "solver_reported_infeasible"
+                                    if status in SOLVER_INFEASIBLE_STATUSES
+                                    else "solver_numerical_failure"
+                                ),
+                            })
+                            qp_failure_diagnostics[int(exc.agent_id)] = exc.diagnostics
+                        kinds = {f["failure_kind"] for f in qp_failures}
+                        local_qp_failure_kind = kinds.pop() if len(kinds) == 1 else "mixed"
+                if stopped_early:
+                    break
+
+                # b) Update all fast states (synchronously).
+                if getattr(self.controller, "uses_fast_dynamics", True):
+                    updated_fast_states: dict[int, FastState] = {}
+                    for agent in self.agents:
+                        updated_fast_states[agent.agent_id] = update_fast_state(
+                            i=agent.agent_id,
+                            state=prev_fast_states[agent.agent_id],
+                            step_idx=step_idx,
+                            all_fast_states=prev_fast_states,
+                            all_agent_states=all_agent_states,
+                            dt=self.dt,
+                            tau=self.fast_tau,
+                            xi=self.fast_xi,
+                            d_c=self.fast_d_c,
+                            target_center=self.fast_target_center,
+                            sigma=self.fast_sigma,
+                            epsilon=self.fast_epsilon,
+                            gamma_1=self.fast_gamma_1,
+                            gamma_2=self.fast_gamma_1,
+                            gamma_3=getattr(self.controller, "config").clf_rate,
+                            d_0=self.fast_d_0,
+                            alpha_clf=getattr(self.controller, "config").alpha_clf,
+                            x_i=all_agent_states[agent.agent_id].position,
+                            u_i=controls[agent.agent_id],
+                            obstacles=self.env.obstacles,
+                            u_max=getattr(self.controller, "config").u_max,
+                            eta=self.fast_eta,
+                            epsilon_c=self.fast_epsilon_c,
+                            lambda_2=lambda_2_runtime,
+                            v2=v2_runtime,
+                            n_agents=len(self.agents),
+                        )
+                    for agent in self.agents:
+                        self._check_fast_state_explosion(
+                            step_idx=step_idx,
+                            agent_id=agent.agent_id,
+                            state=updated_fast_states[agent.agent_id],
+                        )
+                    self.fast_states = updated_fast_states
+                    if step_idx == 4:
+                        fast_states_step_4_snapshot = copy.deepcopy(self.fast_states)
+                        sample_agent_id = self.agents[0].agent_id if self.agents else None
+                        print("[DEBUG fast compare] stored deepcopy snapshot at step=4")
+                        print(
+                            f"[DEBUG fast compare] step=4 snapshot_id={id(fast_states_step_4_snapshot)}, "
+                            f"current_id={id(self.fast_states)}"
+                        )
+                        if sample_agent_id is not None:
+                            snapshot_agent = fast_states_step_4_snapshot[sample_agent_id]
+                            current_agent = self.fast_states[sample_agent_id]
                             print(
                                 f"[DEBUG fast compare] step=4 sample_agent={sample_agent_id}, "
-                                f"sample_neighbor={sample_neighbor_id}, "
-                                f"snapshot_z_pair_id={id(snapshot_agent.z_pair[sample_neighbor_id])}, "
-                                f"current_z_pair_id={id(current_agent.z_pair[sample_neighbor_id])}, "
-                                f"snapshot_y_pair_id={id(snapshot_agent.y_pair[sample_neighbor_id])}, "
-                                f"current_y_pair_id={id(current_agent.y_pair[sample_neighbor_id])}"
+                                f"snapshot_agent_id={id(snapshot_agent)}, current_agent_id={id(current_agent)}"
                             )
-                elif step_idx == 5 and fast_states_step_4_snapshot is not None:
-                    print("[DEBUG fast compare] comparing step=4 snapshot against current step=5 fast states")
-                    print(
-                        f"[DEBUG fast compare] step=5 snapshot_id={id(fast_states_step_4_snapshot)}, "
-                        f"current_id={id(self.fast_states)}"
-                    )
-                    sample_agent_id = self.agents[0].agent_id if self.agents else None
-                    if sample_agent_id is not None:
-                        snapshot_agent = fast_states_step_4_snapshot[sample_agent_id]
-                        current_agent = self.fast_states[sample_agent_id]
+                            if snapshot_agent.z_pair:
+                                sample_neighbor_id = next(iter(snapshot_agent.z_pair))
+                                print(
+                                    f"[DEBUG fast compare] step=4 sample_agent={sample_agent_id}, "
+                                    f"sample_neighbor={sample_neighbor_id}, "
+                                    f"snapshot_z_pair_id={id(snapshot_agent.z_pair[sample_neighbor_id])}, "
+                                    f"current_z_pair_id={id(current_agent.z_pair[sample_neighbor_id])}, "
+                                    f"snapshot_y_pair_id={id(snapshot_agent.y_pair[sample_neighbor_id])}, "
+                                    f"current_y_pair_id={id(current_agent.y_pair[sample_neighbor_id])}"
+                                )
+                    elif step_idx == 5 and fast_states_step_4_snapshot is not None:
+                        print("[DEBUG fast compare] comparing step=4 snapshot against current step=5 fast states")
                         print(
-                            f"[DEBUG fast compare] step=5 sample_agent={sample_agent_id}, "
-                            f"snapshot_agent_id={id(snapshot_agent)}, current_agent_id={id(current_agent)}"
+                            f"[DEBUG fast compare] step=5 snapshot_id={id(fast_states_step_4_snapshot)}, "
+                            f"current_id={id(self.fast_states)}"
                         )
-                        if snapshot_agent.z_pair:
-                            sample_neighbor_id = next(iter(snapshot_agent.z_pair))
+                        sample_agent_id = self.agents[0].agent_id if self.agents else None
+                        if sample_agent_id is not None:
+                            snapshot_agent = fast_states_step_4_snapshot[sample_agent_id]
+                            current_agent = self.fast_states[sample_agent_id]
                             print(
                                 f"[DEBUG fast compare] step=5 sample_agent={sample_agent_id}, "
-                                f"sample_neighbor={sample_neighbor_id}, "
-                                f"snapshot_z_pair_id={id(snapshot_agent.z_pair[sample_neighbor_id])}, "
-                                f"current_z_pair_id={id(current_agent.z_pair[sample_neighbor_id])}, "
-                                f"snapshot_y_pair_id={id(snapshot_agent.y_pair[sample_neighbor_id])}, "
-                                f"current_y_pair_id={id(current_agent.y_pair[sample_neighbor_id])}"
+                                f"snapshot_agent_id={id(snapshot_agent)}, current_agent_id={id(current_agent)}"
                             )
+                            if snapshot_agent.z_pair:
+                                sample_neighbor_id = next(iter(snapshot_agent.z_pair))
+                                print(
+                                    f"[DEBUG fast compare] step=5 sample_agent={sample_agent_id}, "
+                                    f"sample_neighbor={sample_neighbor_id}, "
+                                    f"snapshot_z_pair_id={id(snapshot_agent.z_pair[sample_neighbor_id])}, "
+                                    f"current_z_pair_id={id(current_agent.z_pair[sample_neighbor_id])}, "
+                                    f"snapshot_y_pair_id={id(snapshot_agent.y_pair[sample_neighbor_id])}, "
+                                    f"current_y_pair_id={id(current_agent.y_pair[sample_neighbor_id])}"
+                                )
 
-                    for agent in self.agents:
-                        agent_id = agent.agent_id
-                        prev_state = fast_states_step_4_snapshot[agent_id]
-                        curr_state = self.fast_states[agent_id]
-                        w_delta = (
-                            curr_state.w[0] - prev_state.w[0],
-                            curr_state.w[1] - prev_state.w[1],
-                        )
-                        print(f"[DEBUG fast compare] agent={agent_id}")
-                        print(
-                            f"  w: step4={prev_state.w}, step5={curr_state.w}, delta={w_delta}"
-                        )
-                        print(
-                            f"  z_c: step4={prev_state.z_c:.12f}, "
-                            f"step5={curr_state.z_c:.12f}, "
-                            f"delta={curr_state.z_c - prev_state.z_c:.12f}"
-                        )
-                        print(
-                            f"  z_clf: step4={prev_state.z_clf:.12f}, "
-                            f"step5={curr_state.z_clf:.12f}, "
-                            f"delta={curr_state.z_clf - prev_state.z_clf:.12f}"
-                        )
-                        print(
-                            f"  y_c: step4={prev_state.y_c:.12f}, "
-                            f"step5={curr_state.y_c:.12f}, "
-                            f"delta={curr_state.y_c - prev_state.y_c:.12f}"
-                        )
-                        print(
-                            f"  y_clf: step4={prev_state.y_clf:.12f}, "
-                            f"step5={curr_state.y_clf:.12f}, "
-                            f"delta={curr_state.y_clf - prev_state.y_clf:.12f}"
-                        )
-
-                        for neighbor_id in sorted(prev_state.z_pair):
-                            prev_z_edge = prev_state.z_pair[neighbor_id]
-                            curr_z_edge = curr_state.z_pair[neighbor_id]
-                            prev_y_edge = prev_state.y_pair[neighbor_id]
-                            curr_y_edge = curr_state.y_pair[neighbor_id]
-                            print(f"  neighbor={neighbor_id}")
+                        for agent in self.agents:
+                            agent_id = agent.agent_id
+                            prev_state = fast_states_step_4_snapshot[agent_id]
+                            curr_state = self.fast_states[agent_id]
+                            w_delta = (
+                                curr_state.w[0] - prev_state.w[0],
+                                curr_state.w[1] - prev_state.w[1],
+                            )
+                            print(f"[DEBUG fast compare] agent={agent_id}")
                             print(
-                                f"    z_pair[{neighbor_id}].self_component: "
-                                f"step4={prev_z_edge.self_component:.12f}, "
-                                f"step5={curr_z_edge.self_component:.12f}, "
-                                f"delta={curr_z_edge.self_component - prev_z_edge.self_component:.12f}"
+                                f"  w: step4={prev_state.w}, step5={curr_state.w}, delta={w_delta}"
                             )
                             print(
-                                f"    z_pair[{neighbor_id}].neighbor_component: "
-                                f"step4={prev_z_edge.neighbor_component:.12f}, "
-                                f"step5={curr_z_edge.neighbor_component:.12f}, "
-                                f"delta={curr_z_edge.neighbor_component - prev_z_edge.neighbor_component:.12f}"
+                                f"  z_c: step4={prev_state.z_c:.12f}, "
+                                f"step5={curr_state.z_c:.12f}, "
+                                f"delta={curr_state.z_c - prev_state.z_c:.12f}"
                             )
                             print(
-                                f"    y_pair[{neighbor_id}].self_component: "
-                                f"step4={prev_y_edge.self_component:.12f}, "
-                                f"step5={curr_y_edge.self_component:.12f}, "
-                                f"delta={curr_y_edge.self_component - prev_y_edge.self_component:.12f}"
+                                f"  z_clf: step4={prev_state.z_clf:.12f}, "
+                                f"step5={curr_state.z_clf:.12f}, "
+                                f"delta={curr_state.z_clf - prev_state.z_clf:.12f}"
                             )
                             print(
-                                f"    y_pair[{neighbor_id}].neighbor_component: "
-                                f"step4={prev_y_edge.neighbor_component:.12f}, "
-                                f"step5={curr_y_edge.neighbor_component:.12f}, "
-                                f"delta={curr_y_edge.neighbor_component - prev_y_edge.neighbor_component:.12f}"
+                                f"  y_c: step4={prev_state.y_c:.12f}, "
+                                f"step5={curr_state.y_c:.12f}, "
+                                f"delta={curr_state.y_c - prev_state.y_c:.12f}"
                             )
-            self._record_fast_history_snapshot(fast_history)
+                            print(
+                                f"  y_clf: step4={prev_state.y_clf:.12f}, "
+                                f"step5={curr_state.y_clf:.12f}, "
+                                f"delta={curr_state.y_clf - prev_state.y_clf:.12f}"
+                            )
 
-            # c) Update all agent states.
-            for agent in self.agents:
-                agent.euler_step(u_k=controls[agent.agent_id], dt=self.dt)
+                            for neighbor_id in sorted(prev_state.z_pair):
+                                prev_z_edge = prev_state.z_pair[neighbor_id]
+                                curr_z_edge = curr_state.z_pair[neighbor_id]
+                                prev_y_edge = prev_state.y_pair[neighbor_id]
+                                curr_y_edge = curr_state.y_pair[neighbor_id]
+                                print(f"  neighbor={neighbor_id}")
+                                print(
+                                    f"    z_pair[{neighbor_id}].self_component: "
+                                    f"step4={prev_z_edge.self_component:.12f}, "
+                                    f"step5={curr_z_edge.self_component:.12f}, "
+                                    f"delta={curr_z_edge.self_component - prev_z_edge.self_component:.12f}"
+                                )
+                                print(
+                                    f"    z_pair[{neighbor_id}].neighbor_component: "
+                                    f"step4={prev_z_edge.neighbor_component:.12f}, "
+                                    f"step5={curr_z_edge.neighbor_component:.12f}, "
+                                    f"delta={curr_z_edge.neighbor_component - prev_z_edge.neighbor_component:.12f}"
+                                )
+                                print(
+                                    f"    y_pair[{neighbor_id}].self_component: "
+                                    f"step4={prev_y_edge.self_component:.12f}, "
+                                    f"step5={curr_y_edge.self_component:.12f}, "
+                                    f"delta={curr_y_edge.self_component - prev_y_edge.self_component:.12f}"
+                                )
+                                print(
+                                    f"    y_pair[{neighbor_id}].neighbor_component: "
+                                    f"step4={prev_y_edge.neighbor_component:.12f}, "
+                                    f"step5={curr_y_edge.neighbor_component:.12f}, "
+                                    f"delta={curr_y_edge.neighbor_component - prev_y_edge.neighbor_component:.12f}"
+                                )
+                self._record_fast_history_snapshot(fast_history)
 
-            positions = self.env.agent_positions()
-            trajectories.append(positions)
-            lambda2_comm_k, lambda2_cons_k = self._evaluate_binary_connectivity(positions)
-            lambda2_comm_history.append(lambda2_comm_k)
-            lambda2_cons_history.append(lambda2_cons_k)
-            min_obstacle_clearance.append(self._min_obstacle_clearance(positions))
-            min_inter_agent_distance.append(self._min_inter_agent_distance(positions))
-            self._update_first_target_entry(first_target_entry_step, step_idx=step_idx + 1)
-            self._debug_print_target_phi(step_idx=step_idx + 1)
+                # c) Update all agent states.
+                for agent in self.agents:
+                    agent.euler_step(u_k=controls[agent.agent_id], dt=self.dt)
+                    control_history[agent.agent_id].append(controls[agent.agent_id])
+                    agents_updated += 1
+
+                positions = self.env.agent_positions()
+                trajectories.append(positions)
+                lambda2_comm_k, lambda2_cons_k = self._evaluate_binary_connectivity(positions)
+                lambda2_comm_history.append(lambda2_comm_k)
+                lambda2_cons_history.append(lambda2_cons_k)
+                min_obstacle_clearance.append(self._min_obstacle_clearance(positions))
+                min_inter_agent_distance.append(self._min_inter_agent_distance(positions))
+                self._update_first_target_entry(first_target_entry_step, step_idx=step_idx + 1)
+                self._debug_print_target_phi(step_idx=step_idx + 1)
+
+        except Exception as exc:  # noqa: BLE001 - recorded, partial results returned
+            # The state was not advanced at step_idx; everything recorded so far is real.
+            stopped_early = True
+            termination_reason = "numerical_guard" if isinstance(exc, NumericalGuardError) else "exception"
+            termination_step = step_idx
+            termination_exception = {
+                "type": type(exc).__name__,
+                "message": str(exc),
+                "traceback": traceback.format_exc(),
+                # Agents whose state was already advanced at termination_step when the
+                # exception occurred (0 unless it was raised during/after the Euler update).
+                "agents_state_advanced_at_step": str(agents_updated),
+            }
+            print(f"[SIMULATION ABORTED] step={step_idx}, reason={termination_reason}: {type(exc).__name__}: {exc}")
+
+        steps_completed = len(trajectories) - 1
+        if termination_reason != "completed":
+            applied_now = {a.agent_id for a in self.agents[:agents_updated]}
+            unapplied_controls = {i: controls[i] for i in sorted(controls) if i not in applied_now}
 
         return SimulationResult(
             trajectories=trajectories,
@@ -761,4 +860,13 @@ class Simulator:
             infeasible_agent_id=infeasible_agent_id,
             infeasible_diagnostics=infeasible_diagnostics,
             infeasible_agent_ids=infeasible_agent_ids,
+            termination_reason=termination_reason,
+            termination_step=termination_step,
+            steps_configured=self.steps,
+            steps_completed=steps_completed,
+            local_qp_failure_kind=local_qp_failure_kind,
+            qp_failures=qp_failures,
+            qp_failure_diagnostics=qp_failure_diagnostics,
+            unapplied_controls=unapplied_controls,
+            termination_exception=termination_exception,
         )

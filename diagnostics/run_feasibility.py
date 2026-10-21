@@ -24,6 +24,7 @@ import platform
 import subprocess
 import sys
 import time
+import traceback
 from pathlib import Path
 
 import cvxpy
@@ -38,6 +39,7 @@ from diagnostics.recorder import FeasibilityRecorder
 from main import _set_seed
 from models.agent import AgentState
 from models.environment import CircularObstacle, Environment, TargetRegion
+from simulation.reporting import build_run_report
 from simulation.simulator import Simulator
 
 
@@ -147,30 +149,68 @@ def main() -> None:
     run_error = None
     try:
         with contextlib.redirect_stdout(sink):
+            # Simulator.run() returns partial results itself on numerical-guard and
+            # unexpected exceptions; anything escaping here is outside the step loop.
             result = simulator.run()
-    except Exception as exc:  # e.g. the simulator's numerical-explosion guard
-        run_error = f"{type(exc).__name__}: {exc}"
+    except BaseException as exc:
+        run_error = {"type": type(exc).__name__, "message": str(exc), "traceback": traceback.format_exc()}
+        if not isinstance(exc, Exception):
+            raise  # KeyboardInterrupt etc.: still re-raise after the finally block
     finally:
         sink.close()
+        report = None
+        if result is not None:
+            report = build_run_report(
+                result,
+                dt=cfg.simulation.dt,
+                safety_distance=cfg.controller.safety_distance,
+                d_c=cfg.fast_dynamics.d_c,
+                epsilon_c=cfg.fast_dynamics.epsilon_c,
+                target_center=cfg.target.center,
+                target_sigma=cfg.target.Sigma,
+            )
         extra = {
             "run_meta": meta,
             "run_error": run_error,
+            "horizon_completed": False if result is None else result.horizon_completed,
+            "verdict": (report or {}).get("verdict", "NO RESULT: exception outside the simulation loop"),
+            "termination_reason": "exception" if result is None else result.termination_reason,
+            "termination_step": None if result is None else result.termination_step,
+            "local_qp_failure_kind": None if result is None else result.local_qp_failure_kind,
+            "qp_failures": None if result is None else result.qp_failures,
+            "termination_exception": run_error if result is None else result.termination_exception,
+            "steps_configured": cfg.simulation.steps,
+            "steps_completed": None if result is None else result.steps_completed,
             "stopped_early": None if result is None else result.stopped_early,
             "simulator_infeasible_step": None if result is None else result.infeasible_step,
             "simulator_infeasible_agent_ids": None if result is None else result.infeasible_agent_ids,
-            "steps_completed": None if result is None else len(result.trajectories) - 1,
             "first_target_entry_step": None if result is None else result.first_target_entry_step,
             "run_wall_time_s": time.time() - t0,
         }
-        summary = recorder.close(extra)
-    if result is not None:
-        with (out_dir / "trajectories.json").open("w", encoding="utf-8") as f:
-            json.dump({"dt": cfg.simulation.dt, "trajectories": result.trajectories,
-                       "lambda2_comm": result.lambda2_comm, "lambda2_cons": result.lambda2_cons}, f)
-    print(json.dumps({k: summary[k] for k in ("steps_recorded", "qp_solves", "class_counts", "first_non_solved",
-                                               "run_error", "stopped_early")}, indent=2, default=str),
+        summary = recorder.close(extra, steps_completed=None if result is None else result.steps_completed)
+        if report is not None:
+            with (out_dir / "run_report.json").open("w", encoding="utf-8") as f:
+                json.dump(report, f, indent=2, default=str)
+        if result is not None:
+            with (out_dir / "trajectories.json").open("w", encoding="utf-8") as f:
+                json.dump({
+                    "dt": cfg.simulation.dt,
+                    "steps_configured": result.steps_configured,
+                    "steps_completed": result.steps_completed,
+                    "horizon_completed": result.horizon_completed,
+                    "termination_reason": result.termination_reason,
+                    "trajectories": result.trajectories,
+                    "control_history_applied": {str(k): v for k, v in result.control_history.items()},
+                    "unapplied_controls_at_termination": {str(k): list(v) for k, v in result.unapplied_controls.items()},
+                    "lambda2_comm": result.lambda2_comm,
+                    "lambda2_cons": result.lambda2_cons,
+                }, f)
+    print(json.dumps({k: summary.get(k) for k in ("verdict", "steps_recorded", "qp_solves", "class_counts",
+                                                   "first_terminating_failure", "termination_reason",
+                                                   "horizon_completed", "run_error")}, indent=2, default=str),
           file=sys.stderr)
-
+    if not summary.get("horizon_completed"):
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

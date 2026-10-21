@@ -1,7 +1,9 @@
 """Per-control-update feasibility recorder attached to DistributedController.qp_observer.
 
 Outputs (in ``out_dir``):
-  qp_log.csv.gz          one row per (step, agent): solver status, LP margin, violations
+  qp_log.csv.gz          one row per (step, agent): solver status, LP margin, violations,
+                         and ``applied`` (1 = the input was applied to the state, 0 = the
+                         step was not applied because the run terminated, -1 = unknown)
   step_log.csv.gz        one row per step: spectrum and graph statistics
   topology_events.csv    every edge appearance/disappearance in each graph
   arrays.npz             compact per-step/per-agent arrays for plotting
@@ -34,6 +36,7 @@ from diagnostics.feasibility import (
     CLASSES,
     GROUPS,
     SOLVER_SUCCESS,
+    VERIFIED_SOLVED,
     Tolerances,
     centralized_feasibility,
     classify,
@@ -47,7 +50,7 @@ from diagnostics.feasibility import (
 
 GRAPHS = ("comm", "alpha", "clf")
 QP_COLUMNS = [
-    "step", "t", "agent", "solver_status", "solver_success", "class", "lp_verdict",
+    "step", "t", "agent", "solver_status", "solver_success", "class", "applied", "lp_verdict",
     "s_star", "lp_status", "binding_rows", "degenerate_rows",
     "viol_raw", "viol_raw_row", "viol_norm", "viol_norm_row", "viol_scaled", "viol_flag",
     "slack_pairwise", "slack_obstacle", "slack_connectivity", "slack_clf",
@@ -209,12 +212,26 @@ class FeasibilityRecorder:
         self.max_viol: dict[str, Any] = {"normalized": -math.inf, "raw": -math.inf}
         self.tightest_margin: dict[str, Any] = {"s_star": -math.inf}
         self.failures: list[dict[str, Any]] = []
+        self._pending_rows: list[list[Any]] = []
+        self._pending_step: int | None = None
+        self.n_viol_flag = 0
+        self.max_pri_res = -math.inf
+        self.n_pri_res_above_eps = 0
         self.detail_files = 0
         self.steps_recorded = 0
         self._t0 = time.time()
 
     # ------------------------------------------------------------------ step level
+    def _flush_pending(self, applied: int) -> None:
+        for row in self._pending_rows:
+            # failed solves never produce an applied input
+            row[QP_COLUMNS.index("applied")] = applied if row[QP_COLUMNS.index("solver_success")] else 0
+            self._qp.writerow(row)
+        self._pending_rows = []
+
     def _begin_step(self, step: int, all_agent_states: dict, runtime: dict) -> None:
+        # Reaching a new step means the previous step's inputs were applied.
+        self._flush_pending(applied=1)
         self._cur_step = step
         self.steps_recorded = step + 1
         ids = self.agent_ids
@@ -343,8 +360,13 @@ class FeasibilityRecorder:
             if s_star > self.tightest_margin["s_star"]:
                 self.tightest_margin = {"s_star": s_star, "step": step, "agent": agent_id, "binding": feas["binding"]}
 
-        self._qp.writerow([
-            step, t, agent_id, status, int(solve_result.success), cls, verdict,
+        if viol_flag:
+            self.n_viol_flag += 1
+        if solve_result.pri_res is not None:
+            self.max_pri_res = max(self.max_pri_res, solve_result.pri_res)
+            self.n_pri_res_above_eps += solve_result.pri_res > 1e-5
+        self._pending_rows.append([
+            step, t, agent_id, status, int(solve_result.success), cls, None, verdict,
             s_star, feas["lp_status"], ";".join(feas["binding"]),
             ";".join(d["label"] for d in feas["degenerate_violated"]),
             viol["raw"], viol["raw_label"], viol["normalized"], viol["normalized_label"], viol["scaled"], int(viol_flag),
@@ -357,7 +379,7 @@ class FeasibilityRecorder:
             dec["pair_mismatch_maxabs"],
         ])
 
-        if cls not in ("solved", "solved_inaccurate") or viol_flag:
+        if cls not in VERIFIED_SOLVED or viol_flag:
             self._record_detail(step, agent_id, cls, status, solve_result, feas, viol, slacks, dec,
                                 qp_data, qp_kwargs, runtime_kwargs)
 
@@ -480,6 +502,8 @@ class FeasibilityRecorder:
             "agent": agent_id,
             "class": cls,
             "solver_status": status,
+            "solver_success": bool(solve_result.success),
+            "lp_status": feas["lp_status"],
             "s_star": feas["s_star"],
             "binding_rows": feas["binding"],
             "minimal_infeasible_subsets": subsets["minimal_infeasible_subsets"],
@@ -522,7 +546,17 @@ class FeasibilityRecorder:
             json.dump(_jsonable(detail), f, indent=1)
 
     # ------------------------------------------------------------------ output
-    def close(self, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    def close(self, extra: dict[str, Any] | None = None, steps_completed: int | None = None) -> dict[str, Any]:
+        """Flush logs and write summary.json.
+
+        ``steps_completed`` = number of state updates actually applied by the simulator;
+        it decides whether the last recorded step's inputs were applied.
+        """
+        if self._cur_step is not None:
+            if steps_completed is None:
+                self._flush_pending(applied=-1)
+            else:
+                self._flush_pending(applied=1 if self._cur_step < steps_completed else 0)
         for f in (self._qp_file, self._step_file, self._ev_file):
             f.close()
         n = self.steps_recorded
@@ -548,17 +582,63 @@ class FeasibilityRecorder:
             edges=self.a_edges[:n],
             events=self.a_events[:n],
         )
-        first_bad = next((f for f in self.failures if f["class"] not in ("solved", "solved_inaccurate")), None)
+        not_verified = [f for f in self.failures if f["class"] not in VERIFIED_SOLVED]
+        first_not_verified = not_verified[0] if not_verified else None
+        first_terminating = next((f for f in self.failures if not f["solver_success"]), None)
+        cls_arr = self.a_class[:n]
+        solved_mask = np.isin(cls_arr, [CLASS_CODE[c] for c in VERIFIED_SOLVED])
+        osqp_ok_mask = np.isin(self.a_status[:n], [0, 1])  # optimal / optimal_inaccurate
+        v = self.a_viol_norm[:n][osqp_ok_mask]
+        v = v[np.isfinite(v)]
+        buckets = {"<=1e-9": 0, "(1e-9,1e-6]": 0, "(1e-6,1e-5]": 0, "(1e-5,1e-4]": 0, ">1e-4": 0}
+        if v.size:
+            edges = [1e-9, 1e-6, 1e-5, 1e-4]
+            idx = np.searchsorted(edges, v, side="left")
+            for key, count in zip(buckets, np.bincount(idx, minlength=5)):
+                buckets[key] = int(count)
         summary = {
             "steps_recorded": n,
             "qp_solves": int(sum(self.class_counts.values())),
             "class_counts": {c: int(self.class_counts.get(c, 0)) for c in CLASSES},
             "solver_status_counts": dict(self.status_counts),
+            "verification": {
+                "verified_feasible_and_solved": int(solved_mask.sum()),
+                "not_verified": len(not_verified),
+                "osqp_success_but_lp_infeasible": {
+                    "count": int(self.class_counts.get("inconsistent", 0)),
+                    "note": "OSQP reported success but the independent LP found no admissible u; "
+                            "the OSQP input was applied (diagnostics never intervene).",
+                    "cases": [f for f in not_verified if f["class"] == "inconsistent"][:200],
+                },
+                "lp_errors": {
+                    "count": int(self.class_counts.get("lp_error", 0)),
+                    "note": "The auxiliary LP failed; feasibility of these QPs is NOT verified.",
+                    "cases": [f for f in not_verified if f["class"] == "lp_error"][:200],
+                },
+                "borderline": int(self.class_counts.get("borderline", 0)),
+                "solver_failures_lp_feasible (numerical_failure)": int(self.class_counts.get("numerical_failure", 0)),
+                "solver_failures_lp_infeasible (infeasible)": int(self.class_counts.get("infeasible", 0)),
+            },
+            "tolerance": {
+                "description": "Normalized violation max_r (a_r^T u - b_r)/||a_r|| of OSQP-successful solves, "
+                               "control units; OSQP eps_abs = eps_rel = 1e-5, no polishing.",
+                "violation_buckets": buckets,
+                "violation_quantiles": (
+                    {q: float(np.quantile(v, q)) for q in (0.5, 0.9, 0.99, 1.0)} if v.size else None
+                ),
+                "count_above_viol_tol": int(self.n_viol_flag),
+                "viol_tol": self.tol.viol_tol,
+                "optimal_inaccurate_count": int(self.status_counts.get("optimal_inaccurate", 0)),
+                "max_osqp_primal_residual": None if not math.isfinite(self.max_pri_res) else self.max_pri_res,
+                "count_osqp_primal_residual_above_1e-5": int(self.n_pri_res_above_eps),
+            },
             "max_violation_of_solved_qps": self.max_viol,
             "tightest_lp_margin_of_solved_qps": self.tightest_margin,
-            "first_non_solved": first_bad,
-            "non_solved_qps": [f for f in self.failures if f["class"] not in ("solved", "solved_inaccurate")][:500],
-            "solved_with_violation_flag": sum(1 for f in self.failures if f["class"] in ("solved", "solved_inaccurate")),
+            "first_terminating_failure": first_terminating,
+            "first_not_verified": first_not_verified,
+            "first_non_solved": first_not_verified,
+            "non_solved_qps": not_verified[:500],
+            "solved_with_violation_flag": sum(1 for f in self.failures if f["class"] in VERIFIED_SOLVED),
             "topology_events": {g: int(self.a_events[:n, k].sum()) for k, g in enumerate(GRAPHS)},
             "min_lambda2": float(np.nanmin(self.a_lambda2[:n])) if n else None,
             "tolerances": vars(self.tol),

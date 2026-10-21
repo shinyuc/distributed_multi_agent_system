@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import textwrap
 from pathlib import Path
 
 import matplotlib
@@ -61,6 +62,32 @@ def _style(ax) -> None:
     ax.set_axisbelow(True)
 
 
+def _termination(summary: dict, n_recorded: int, dt: float) -> dict:
+    """Completion info; tolerant of summaries written before termination fields existed."""
+    meta = summary.get("run_meta", {})
+    steps_cfg = summary.get("steps_configured", meta.get("steps_configured"))
+    if "horizon_completed" in summary:
+        completed = bool(summary["horizon_completed"])
+        reason = summary.get("termination_reason")
+        term_step = summary.get("termination_step")
+        steps_done = summary.get("steps_completed")
+    else:  # legacy summary
+        completed = (not summary.get("stopped_early")) and not summary.get("run_error") \
+            and summary.get("steps_completed") == steps_cfg
+        reason = "completed" if completed else ("exception" if summary.get("run_error") else "local_qp_failure")
+        term_step = summary.get("simulator_infeasible_step")
+        steps_done = summary.get("steps_completed")
+    if term_step is None and not completed:
+        term_step = n_recorded - 1
+    verdict = summary.get("verdict") or (
+        f"COMPLETED full horizon ({steps_cfg} steps)" if completed
+        else f"TERMINATED EARLY at step {term_step} ({reason})"
+    )
+    return {"completed": completed, "reason": reason, "term_step": term_step, "steps_done": steps_done,
+            "t_cfg": None if steps_cfg is None else steps_cfg * dt, "verdict": verdict,
+            "failures": summary.get("qp_failures") or []}
+
+
 def plot_run(run_dir: Path, eta: float | None, n_bins: int = 3000) -> Path:
     d = np.load(run_dir / "arrays.npz")
     summary = json.loads((run_dir / "summary.json").read_text())
@@ -73,6 +100,7 @@ def plot_run(run_dir: Path, eta: float | None, n_bins: int = 3000) -> Path:
     classes = list(d["classes"])
     s = d["s_star"].astype(float)
     s_plot = np.where(np.isinf(s), 1e3, s)
+    term = _termination(summary, n, dt)
 
     fig, axes = plt.subplots(
         6, 1, figsize=(10, 12.5), sharex=True,
@@ -102,13 +130,22 @@ def plot_run(run_dir: Path, eta: float | None, n_bins: int = 3000) -> Path:
     ax.set_yscale("symlog", linthresh=1e-3)
     bad = np.argwhere(d["cls"] >= classes.index("borderline"))
     if len(bad):
-        for code, color, name in ((classes.index("infeasible"), CRITICAL, "infeasible"),
-                                  (classes.index("numerical_failure"), WARNING, "numerical failure"),
-                                  (classes.index("borderline"), WARNING, "borderline")):
+        markers = [("infeasible", CRITICAL, "o", "infeasible (OSQP failed, LP confirms)"),
+                   ("numerical_failure", WARNING, "s", "numerical failure (OSQP failed, LP feasible)"),
+                   ("borderline", WARNING, "D", "borderline"),
+                   ("inconsistent", CRITICAL, "X", "OSQP ok but LP infeasible"),
+                   ("lp_error", MUTED, "^", "LP error (not verified)")]
+        for name_key, color, marker, name in markers:
+            if name_key not in classes:
+                continue
+            code = classes.index(name_key)
             sel = bad[d["cls"][bad[:, 0], bad[:, 1]] == code]
-            if len(sel):
-                ax.scatter(t[sel[:, 0]], s_plot[sel[:, 0], sel[:, 1]], s=36, color=color,
-                           edgecolor=SURFACE, linewidth=1.5, zorder=5, label=f"{name} ({len(sel)})")
+            if not len(sel):
+                continue
+            y = s_plot[sel[:, 0], sel[:, 1]]
+            y = np.where(np.isfinite(y), y, 0.0)
+            ax.scatter(t[sel[:, 0]], y, s=40, color=color, marker=marker,
+                       edgecolor=SURFACE, linewidth=1.5, zorder=5, label=f"{name} ({len(sel)})")
         ax.legend(loc="lower right", bbox_to_anchor=(1.0, 1.0), fontsize=8, frameon=False, ncol=3, labelcolor=INK_2, borderaxespad=0.2)
     ax.set_ylabel("max over agents of s*", color=INK_2, fontsize=9)
     ax.set_title("Worst local feasibility margin s* (control units; > 0 = no admissible u)",
@@ -119,7 +156,10 @@ def plot_run(run_dir: Path, eta: float | None, n_bins: int = 3000) -> Path:
     tb, sb = _bin(t, s_plot, n_bins, np.nanmax)
     span = max(float(np.nanmax(np.abs(sb))) if np.isfinite(sb).any() else 1.0, 1e-2)
     norm = SymLogNorm(linthresh=1e-3, vmin=-span, vmax=span)
-    t_edges = np.append(tb, tb[-1] + (tb[1] - tb[0] if len(tb) > 1 else dt))
+    width = tb[1] - tb[0] if len(tb) > 1 else dt
+    if term["t_cfg"]:
+        width = max(width, term["t_cfg"] / 400.0)  # keep very short runs visible on the full horizon
+    t_edges = np.append(tb, tb[-1] + width) if len(tb) == 1 else np.append(tb, tb[-1] + (tb[1] - tb[0]))
     mesh = ax.pcolormesh(t_edges, np.arange(len(agents) + 1) - 0.5, sb.T, cmap=DIVERGING, norm=norm,
                          shading="flat")
     ax.set_yticks(range(len(agents)))
@@ -175,15 +215,34 @@ def plot_run(run_dir: Path, eta: float | None, n_bins: int = 3000) -> Path:
     ax.set_title("Topology events (edge appears / disappears); totals at right", loc="left", fontsize=10, color=INK)
     ax.set_xlabel("time [s]", color=INK_2, fontsize=9)
 
+    # Horizon and termination marking on every panel
+    if term["t_cfg"]:
+        for ax in axes:
+            ax.set_xlim(0.0, term["t_cfg"])
+    if not term["completed"]:
+        t_term = (term["term_step"] or 0) * dt
+        for ax in axes:
+            ax.axvline(t_term, color=CRITICAL, lw=1.2, ls="--", zorder=6)
+            if term["t_cfg"] and term["t_cfg"] > t_term:
+                ax.axvspan(t_term, term["t_cfg"], color=GRID, alpha=0.7, lw=0, zorder=0)
+        agents_failed = [f.get("agent_id") for f in term["failures"]]
+        axes[0].annotate(
+            f"terminated: {term['reason']}" + (f", agents {agents_failed}" if agents_failed else ""),
+            (t_term, 1.0), xycoords=("data", "axes fraction"), xytext=(4, -2), textcoords="offset points",
+            fontsize=8, color=CRITICAL, va="top",
+        )
+
     meta = summary.get("run_meta", {})
     cc = summary["class_counts"]
     fig.suptitle(
-        f"{meta.get('config_path', run_dir.name)} — {summary['qp_solves']} local QPs over "
-        f"{summary['steps_recorded']} updates: solved {cc['solved']}, inaccurate {cc['solved_inaccurate']}, "
-        f"infeasible {cc['infeasible']}, numerical {cc['numerical_failure']}, borderline {cc['borderline']}",
-        x=0.01, ha="left", fontsize=10, color=INK,
+        "\n".join(textwrap.wrap(f"{meta.get('config_path', run_dir.name)} — {term['verdict']}", 120)) + "\n"
+        f"{summary['qp_solves']} local QPs over {summary['steps_recorded']} control updates: "
+        f"verified solved {cc['solved']} (+{cc['solved_inaccurate']} inaccurate), infeasible {cc['infeasible']}, "
+        f"numerical {cc['numerical_failure']}, borderline {cc['borderline']}, "
+        f"OSQP/LP disagreement {cc.get('inconsistent', 0)}, LP error {cc.get('lp_error', 0)}",
+        x=0.01, ha="left", fontsize=9.5, color=CRITICAL if not term["completed"] else INK,
     )
-    fig.tight_layout(rect=(0, 0, 1, 0.98))
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
     out = run_dir / "feasibility_diagnostics.png"
     fig.savefig(out, dpi=150, facecolor=SURFACE)
     plt.close(fig)
