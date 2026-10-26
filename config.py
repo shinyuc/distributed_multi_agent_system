@@ -74,6 +74,8 @@ class ControllerConfig:
     alpha_clf: float = 1.0
     alpha_connectivity: float = 1.0
     debug_disable_clf_coupling: bool = False
+    # CLF mismatch weights: "gated" v_ij = h_ij sigma_i sigma_j (default); "communication" v_ij = h_ij.
+    clf_coupling: str = "gated"
 
 
 @dataclass
@@ -203,6 +205,10 @@ def load_config(path: str) -> Config:
     if controller.mode not in {"distributed", "centralized"}:
         raise ValueError(
             f"controller.mode must be 'distributed' or 'centralized', got {controller.mode!r}."
+        )
+    if controller.clf_coupling not in {"gated", "communication"}:
+        raise ValueError(
+            f"controller.clf_coupling must be 'gated' or 'communication', got {controller.clf_coupling!r}."
         )
     if fast_dynamics.tau <= 0:
         raise ValueError(f"fast_dynamics.tau must be > 0, got {fast_dynamics.tau}.")

@@ -18,6 +18,7 @@ import numpy as np
 
 from controller.constraints import obstacle_constraint_coefficients
 from controller.fast_dynamics import (
+    clf_coupling_gates,
     compute_V_i,
     compute_beta_i,
     h_ij,
@@ -381,8 +382,14 @@ def build_clf_constraint_row(
     alpha_clf: float = 1.0,
     step_idx: int | None = None,
     debug_disable_coupling: bool = False,
+    clf_coupling: str = "gated",
 ) -> tuple[Vector2, float, str]:
-    """Build affine row for CLF constraint g_i^{clf}(u_i) <= 0."""
+    """Build affine row for CLF constraint g_i^{clf}(u_i) <= 0.
+
+    The mismatch weights follow ``clf_coupling`` (see controller.fast_dynamics.clf_coupling_gates).
+    In the communication mode an agent inside its inner target region keeps its mismatch
+    coupling: its row is 0^T u_i <= -alpha_clf * sum_j h_ij (z_i^clf - z_j^clf).
+    """
     if gamma_3 <= 0.0:
         raise ValueError(f"gamma_3 must be > 0, got {gamma_3}.")
     if d_c <= 0.0:
@@ -397,11 +404,12 @@ def build_clf_constraint_row(
     if i not in all_agent_states:
         raise KeyError(f"Missing agent state for i={i}.")
 
+    clf_coupling_gates(0.0, 0.0, clf_coupling)  # validate the mode
     debug_on = (step_idx is not None) and (step_idx >= 100) and (i in {0, 1, 3})
     x_i = all_agent_states[i].position
     v_i = compute_V_i(x_i=x_i, target_center=target_center, sigma=sigma, epsilon=epsilon)
     h_i = math.exp(-1.0 / v_i) if v_i > 0.0 else 0.0
-    if h_i == 0.0:
+    if h_i == 0.0 and clf_coupling == "gated":
         a: Vector2 = (0.0, 0.0)
         b_val = 0.0
         if debug_on:
@@ -442,7 +450,8 @@ def build_clf_constraint_row(
         h = h_ij(x_i=x_i, x_j=x_j, d_c=d_c)
         v_j = compute_V_i(x_i=x_j, target_center=target_center, sigma=sigma, epsilon=epsilon)
         h_j = math.exp(-1.0 / v_j) if v_j > 0.0 else 0.0
-        contribution = h * h_i * h_j * (z_i_clf - fast_j.z_clf)
+        g_i, g_j = clf_coupling_gates(h_i, h_j, clf_coupling)
+        contribution = h * g_i * g_j * (z_i_clf - fast_j.z_clf)
         coupling_sum += contribution
         if debug_on:
             dxj0 = x_j[0] - target_center[0]
@@ -458,6 +467,10 @@ def build_clf_constraint_row(
             )
     if debug_on:
         print(f"[DEBUG clf coupling total] step={step_idx}, agent={i}, total={coupling_sum:.6f}")
+    if h_i == 0.0:
+        # Communication mode, agent inside its inner target region: W_i = 0 and grad W_i = 0,
+        # so the row keeps only its mismatch coupling (it is not dropped even if it is violated).
+        return (0.0, 0.0), -(alpha_clf * coupling_sum), f"clf(i={i},inactive)"
 
     exp_factor = math.exp(-1.0 / v_i)
     alpha = 2.0 * exp_factor * (1.0 + 1.0 / v_i)
@@ -539,6 +552,7 @@ def build_local_qp_data(
     lambda_2: float | None = None,
     v2: dict[int, float] | None = None,
     n_agents: int | None = None,
+    clf_coupling: str = "gated",
 ) -> LocalQPData:
     """Build local QP data for one agent i using current fast mismatch states."""
     # ###### check 
@@ -634,6 +648,7 @@ def build_local_qp_data(
         alpha_clf=alpha_clf,
         step_idx=step_idx,
         debug_disable_coupling=debug_disable_clf_coupling,
+        clf_coupling=clf_coupling,
     )
     _append_row(A, b, row_labels, a_row, b_val, label, A_raw, b_raw)
 

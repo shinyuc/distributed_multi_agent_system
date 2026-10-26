@@ -28,7 +28,14 @@ from typing import Any
 import numpy as np
 
 from controller.centralized_qp import build_centralized_qp_data
-from controller.fast_dynamics import alpha_ij_connectivity, compute_V_i, compute_beta_i, connectivity_sigma, h_ij
+from controller.fast_dynamics import (
+    alpha_ij_connectivity,
+    clf_coupling_gates,
+    compute_V_i,
+    compute_beta_i,
+    connectivity_sigma,
+    h_ij,
+)
 from controller.local_qp import build_local_qp_data
 from models.fast_state import EdgeMismatchState, FastState
 from diagnostics.feasibility import (
@@ -392,6 +399,7 @@ class FeasibilityRecorder:
         center, sigma, eps = kw["target_center"], kw["sigma"], kw["epsilon"]
         v_i = compute_V_i(x_i, center, sigma, eps)
         h_i = math.exp(-1.0 / v_i) if v_i > 0.0 else 0.0
+        clf_coupling = kw.get("clf_coupling", "gated")
         conn_mm = 0.0
         clf_mm = 0.0
         deg_comm = deg_alpha = 0
@@ -403,10 +411,11 @@ class FeasibilityRecorder:
             deg_comm += h > 0.0
             deg_alpha += math.dist(x_i, xs[j]) < thr
             conn_mm += h * (fs_all[i].z_c - fs_j.z_c)
-            if h_i > 0.0:
+            if h_i > 0.0 or clf_coupling == "communication":
                 v_j = compute_V_i(xs[j], center, sigma, eps)
                 h_j = math.exp(-1.0 / v_j) if v_j > 0.0 else 0.0
-                clf_mm += h * h_i * h_j * (fs_all[i].z_clf - fs_j.z_clf)
+                g_i, g_j = clf_coupling_gates(h_i, h_j, clf_coupling)
+                clf_mm += h * g_i * g_j * (fs_all[i].z_clf - fs_j.z_clf)
         pair_mm = 0.0
         for j, e in fs_all[i].z_pair.items():
             h = h_ij(x_i, xs[j], kw["d_c"])
@@ -455,6 +464,7 @@ class FeasibilityRecorder:
             alpha_connectivity=kw["alpha_connectivity"],
             lambda_2=kw["lambda_2"],
             v2=kw["v2"],
+            clf_coupling=kw.get("clf_coupling", "gated"),
         )
         A = np.asarray(cqp.A, dtype=float)
         b = np.asarray(cqp.b, dtype=float)

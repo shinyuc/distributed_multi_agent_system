@@ -16,6 +16,28 @@ from models.environment import CircularObstacle
 from models.fast_state import EdgeDualState, EdgeMismatchState, FastState
 
 
+CLF_COUPLING_MODES = ("gated", "communication")
+
+
+def clf_coupling_gates(h_i: float, h_j: float, clf_coupling: str = "gated") -> tuple[float, float]:
+    """Factors multiplying h_ij in the CLF mismatch weight v_ij = h_ij * g_i * g_j.
+
+    gated:          v_ij = h_ij sigma_i sigma_j, sigma_i = exp(-1/q_i) for q_i > 0 and 0 otherwise
+                    (h_i, h_j are these sigma values); an agent inside its inner target region
+                    (sigma_i = 0) carries no CLF mismatch coupling.
+    communication:  v_ij = h_ij; every agent, including one inside its inner target region,
+                    keeps its CLF mismatch coupling.
+
+    Callers multiply ``h * g_i * g_j`` in that order, so the gated mode reproduces the original
+    ``h * h_i * h_j`` arithmetic exactly (multiplication by 1.0 is exact in the other mode).
+    """
+    if clf_coupling == "gated":
+        return h_i, h_j
+    if clf_coupling == "communication":
+        return 1.0, 1.0
+    raise ValueError(f"clf_coupling must be one of {CLF_COUPLING_MODES}, got {clf_coupling!r}.")
+
+
 def compute_beta_i(
     i: int,
     state: FastState,
@@ -291,8 +313,13 @@ def clf_constraint_value(
     target_center: Vector2,
     sigma: list[list[float]],
     epsilon: float,
+    clf_coupling: str = "gated",
 ) -> float:
-    """Compute g_i^{clf}(w_i, x_i, {x_j}, z_i^{clf}, {z_j^{clf}})."""
+    """Compute g_i^{clf}(w_i, x_i, {x_j}, z_i^{clf}, {z_j^{clf}}).
+
+    The mismatch weights follow ``clf_coupling`` (see clf_coupling_gates). In the communication
+    mode an agent inside its inner target region (W_i = 0, grad W_i = 0) keeps the coupling term.
+    """
     if i not in all_fast_states:
         raise KeyError(f"Missing fast state for i={i}.")
     if i not in all_agent_states:
@@ -309,10 +336,11 @@ def clf_constraint_value(
     if epsilon <= 0.0:
         raise ValueError(f"epsilon must be > 0, got {epsilon}.")
 
+    clf_coupling_gates(0.0, 0.0, clf_coupling)  # validate the mode
     z_i_clf = state.z_clf
     v_i = compute_V_i(x_i=x_i, target_center=target_center, sigma=sigma, epsilon=epsilon)
     h_i = math.exp(-1.0 / v_i) if v_i > 0.0 else 0.0
-    if h_i == 0.0:
+    if h_i == 0.0 and clf_coupling == "gated":
         return 0.0
 
     coupling_sum = 0.0
@@ -325,7 +353,12 @@ def clf_constraint_value(
         h = h_ij(x_i=x_i, x_j=x_j, d_c=d_c)
         v_j = compute_V_i(x_i=x_j, target_center=target_center, sigma=sigma, epsilon=epsilon)
         h_j = math.exp(-1.0 / v_j) if v_j > 0.0 else 0.0
-        coupling_sum += h * h_i * h_j * (z_i_clf - fast_j.z_clf)
+        g_i, g_j = clf_coupling_gates(h_i, h_j, clf_coupling)
+        coupling_sum += h * g_i * g_j * (z_i_clf - fast_j.z_clf)
+    if h_i == 0.0:
+        # Communication mode, agent inside its inner target region: W_i = 0 and grad W_i = 0,
+        # so only the mismatch coupling remains.
+        return coupling_sum
 
     s00, s01 = sigma[0]
     s10, s11 = sigma[1]
@@ -765,6 +798,7 @@ def update_z_clf(
     target_center: Vector2,
     sigma: list[list[float]],
     epsilon: float,
+    clf_coupling: str = "gated",
     **_: Any,
 ) -> float:
     """Update z_i^{clf} using forward Euler.
@@ -813,7 +847,8 @@ def update_z_clf(
         h = h_ij(x_i=x_i, x_j=x_j, d_c=d_c)
         v_j = compute_V_i(x_i=x_j, target_center=target_center, sigma=sigma, epsilon=epsilon)
         h_j = math.exp(-1.0 / v_j) if v_j > 0.0 else 0.0
-        coupling_sum += h * h_i * h_j * (y_i_clf - fast_j.y_clf)
+        g_i, g_j = clf_coupling_gates(h_i, h_j, clf_coupling)
+        coupling_sum += h * g_i * g_j * (y_i_clf - fast_j.y_clf)
 
     z_clf_old = state.z_clf
     rhs = -xi * z_clf_old - alpha_clf * coupling_sum
@@ -845,6 +880,7 @@ def update_y_components(
     u_max: float | None = None,
     n_agents: int | None = None,
     N: int | None = None,
+    clf_coupling: str = "gated",
     **extra: Any,
 ) -> tuple[dict[int, EdgeDualState], float, float, list[float], list[float]]:
     """Update rule placeholder for stacked dual variable y_i.
@@ -1015,7 +1051,7 @@ def update_y_components(
     )
     clf_coupling_sum = 0.0
     clf_coupling_contributions: list[tuple[int, float, float, float, float]] = []
-    if h_i_clf != 0.0:
+    if h_i_clf != 0.0 or clf_coupling == "communication":
         for j, fast_j in all_fast_states.items():
             if j == i:
                 continue
@@ -1025,7 +1061,8 @@ def update_y_components(
             h = h_ij(x_i=x_i, x_j=x_j, d_c=d_c)
             v_j = compute_V_i(x_i=x_j, target_center=target_center, sigma=sigma, epsilon=epsilon)
             h_j = math.exp(-1.0 / v_j) if v_j > 0.0 else 0.0
-            contribution = h * h_i_clf * h_j * (state.z_clf - fast_j.z_clf)
+            g_i, g_j = clf_coupling_gates(h_i_clf, h_j, clf_coupling)
+            contribution = h * g_i * g_j * (state.z_clf - fast_j.z_clf)
             clf_coupling_sum += contribution
             clf_coupling_contributions.append((j, h, v_j, h_j, contribution))
     g_clf = clf_constraint_value(
@@ -1040,6 +1077,7 @@ def update_y_components(
         target_center=target_center,
         sigma=sigma,
         epsilon=epsilon,
+        clf_coupling=clf_coupling,
     )
     y_clf_old = state.y_clf
     projected_rhs_clf = project_plus(a=g_clf, b=y_clf_old)

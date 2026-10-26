@@ -438,6 +438,7 @@ def main() -> None:
                 "dt": cfg.simulation.dt,
                 "steps": cfg.simulation.steps,
                 "fast_substeps": cfg.fast_dynamics.substeps,
+                "clf_coupling": cfg.controller.clf_coupling,
                 "steps_configured": result.steps_configured,
                 "steps_completed": result.steps_completed,
                 "horizon_completed": result.horizon_completed,

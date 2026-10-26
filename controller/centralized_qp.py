@@ -10,7 +10,7 @@ from typing import Any
 import numpy as np
 
 from controller.constraints import obstacle_constraint_coefficients
-from controller.fast_dynamics import compute_V_i, compute_beta_i, h_ij
+from controller.fast_dynamics import clf_coupling_gates, compute_V_i, compute_beta_i, h_ij
 from models.agent import AgentState, Vector2
 from models.environment import CircularObstacle
 from models.fast_state import FastState
@@ -78,8 +78,14 @@ def build_centralized_qp_data(
     alpha_connectivity: float,
     lambda_2: float | None,
     v2: dict[int, float] | None,
+    clf_coupling: str = "gated",
 ) -> CentralizedQPData:
-    """Build the centralized QP over stacked controls and mismatch variables."""
+    """Build the centralized QP over stacked controls and mismatch variables.
+
+    CLF mismatch weights follow ``clf_coupling`` (see controller.fast_dynamics.clf_coupling_gates);
+    in the communication mode an agent inside its inner target region keeps its z_clf coupling.
+    """
+    clf_coupling_gates(0.0, 0.0, clf_coupling)  # validate the mode
     agent_ids = sorted(all_agent_states.keys())
     n_agents = len(agent_ids)
     if n_agents == 0:
@@ -270,12 +276,22 @@ def build_centralized_qp_data(
                     epsilon=epsilon,
                 )
                 h_j = math.exp(-1.0 / v_j) if v_j > 0.0 else 0.0
-                coeff = alpha_clf * h_ij(x_i=x_i, x_j=x_j, d_c=d_c) * h_i * h_j
+                g_i, g_j = clf_coupling_gates(h_i, h_j, clf_coupling)
+                coeff = alpha_clf * h_ij(x_i=x_i, x_j=x_j, d_c=d_c) * g_i * g_j
                 row[z_clf_index[i]] += coeff
                 row[z_clf_index[j]] -= coeff
             rhs = -gamma_3 * w_i
             label = f"clf(i={i},active)"
         else:
+            if clf_coupling == "communication":
+                # Agent inside its inner target region: W_i = 0, grad W_i = 0; the mismatch
+                # coupling row sum_j h_ij (z_i^clf - z_j^clf) <= 0 is kept.
+                for j in agent_ids:
+                    if j == i:
+                        continue
+                    coeff = alpha_clf * h_ij(x_i=x_i, x_j=all_agent_states[j].position, d_c=d_c)
+                    row[z_clf_index[i]] += coeff
+                    row[z_clf_index[j]] -= coeff
             rhs = 0.0
             label = f"clf(i={i},inactive)"
         _append_joint_row(

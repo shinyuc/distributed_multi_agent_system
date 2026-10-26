@@ -682,6 +682,7 @@ class Simulator:
                                 gamma_3=getattr(self.controller, "config").clf_rate,
                                 d_0=self.fast_d_0,
                                 alpha_clf=getattr(self.controller, "config").alpha_clf,
+                                clf_coupling=getattr(self.controller, "config").clf_coupling,
                                 x_i=all_agent_states[agent.agent_id].position,
                                 u_i=controls[agent.agent_id],
                                 obstacles=self.env.obstacles,

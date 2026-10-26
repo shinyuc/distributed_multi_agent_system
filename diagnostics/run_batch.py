@@ -112,6 +112,7 @@ SUMMARY_PARAMS = {
     "alpha_clf": ("controller", "alpha_clf"),
     "alpha_connectivity": ("controller", "alpha_connectivity"),
     "enable_connectivity_constraint": ("controller", "enable_connectivity_constraint"),
+    "clf_coupling": ("controller", "clf_coupling"),
 }
 
 
@@ -219,6 +220,11 @@ def summarize_scenario(sdir: Path, outcome: dict[str, Any], config: dict[str, An
         row["error_tail"] = "\n".join((sdir / "stderr.log").read_text(errors="replace").splitlines()[-15:])
     if summary is None:
         return row
+    # Use the values the run resolved (defaults included) where the runner recorded them.
+    for name in ("clf_coupling",):
+        resolved = _get(summary, "run_meta", name)
+        if resolved is not None:
+            row[name] = resolved
     cc = summary.get("class_counts", {})
     tight = summary.get("tightest_lp_margin_of_solved_qps") or {}
     first_ns = summary.get("first_non_solved") or {}

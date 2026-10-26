@@ -68,6 +68,7 @@ class CentralizedController(Controller):
             alpha_connectivity=self.config.alpha_connectivity,
             lambda_2=float(kwargs["lambda_2"]) if "lambda_2" in kwargs else None,
             v2=kwargs["v2"] if "v2" in kwargs else None,  # type: ignore[arg-type]
+            clf_coupling=self.config.clf_coupling,
         )
 
         decision, solve_ok, reason = solve_centralized_qp_with_status(qp_data)

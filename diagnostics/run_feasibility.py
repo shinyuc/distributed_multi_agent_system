@@ -188,6 +188,7 @@ def main() -> None:
         "tau": cfg.fast_dynamics.tau,
         "fast_substeps": cfg.fast_dynamics.substeps,
         "xi": cfg.fast_dynamics.xi,
+        "clf_coupling": cfg.controller.clf_coupling,
         "git_commit": _git_commit(),
         "versions": {"python": platform.python_version(), "cvxpy": cvxpy.__version__,
                      "osqp": osqp.__version__, "scipy": scipy.__version__},

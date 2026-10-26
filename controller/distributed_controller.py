@@ -5,7 +5,14 @@ from __future__ import annotations
 from config import ControllerConfig
 from controller.base_controller import Controller
 from controller.constraints import obstacle_constraint_coefficients
-from controller.fast_dynamics import compute_V_i, compute_beta_i, compute_clf_gradient_term, h_ij, pairwise_constraint_value
+from controller.fast_dynamics import (
+    clf_coupling_gates,
+    compute_V_i,
+    compute_beta_i,
+    compute_clf_gradient_term,
+    h_ij,
+    pairwise_constraint_value,
+)
 from controller.local_qp import build_local_qp_data, solve_local_qp_detailed
 from models.agent import AgentState, Vector2
 from models.environment import Environment
@@ -94,6 +101,7 @@ class DistributedController(Controller):
         epsilon_c: float,
         v2: dict[int, float] | None,
         n_agents: int,
+        clf_coupling: str = "gated",
     ) -> dict[str, object]:
         x_i = all_agent_states[agent_id].position
         out: dict[str, object] = {}
@@ -130,18 +138,9 @@ class DistributedController(Controller):
 
         v_i = compute_V_i(x_i=x_i, target_center=target_center, sigma=sigma, epsilon=epsilon)
         h_i = math.exp(-1.0 / v_i) if v_i > 0.0 else 0.0
-        if v_i > 0.0:
-            exp_factor = math.exp(-1.0 / v_i)
-            alpha = 2.0 * exp_factor * (1.0 + 1.0 / v_i)
-            w_i = exp_factor * v_i
-            dx0 = x_i[0] - target_center[0]
-            dx1 = x_i[1] - target_center[1]
-            a_u0 = dx0 * sigma[0][0] + dx1 * sigma[1][0]
-            a_u1 = dx0 * sigma[0][1] + dx1 * sigma[1][1]
-            gradient_term = (float(alpha * a_u0), float(alpha * a_u1))
-            gamma_w = float(gamma_3 * w_i)
-            coupling_terms: list[dict[str, object]] = []
-            coupling_sum = 0.0
+        coupling_terms: list[dict[str, object]] = []
+        coupling_sum = 0.0
+        if v_i > 0.0 or clf_coupling == "communication":
             for j, fast_j in all_fast_states.items():
                 if j == agent_id:
                     continue
@@ -150,7 +149,8 @@ class DistributedController(Controller):
                 v_j = compute_V_i(x_i=x_j, target_center=target_center, sigma=sigma, epsilon=epsilon)
                 h_j = math.exp(-1.0 / v_j) if v_j > 0.0 else 0.0
                 raw = state.z_clf - fast_j.z_clf
-                weighted = h * h_i * h_j * raw
+                g_i, g_j = clf_coupling_gates(h_i, h_j, clf_coupling)
+                weighted = h * g_i * g_j * raw
                 coupling_sum += weighted
                 coupling_terms.append(
                     {
@@ -162,15 +162,24 @@ class DistributedController(Controller):
                         "weighted_term": float(weighted),
                     }
                 )
+        if v_i > 0.0:
+            exp_factor = math.exp(-1.0 / v_i)
+            alpha = 2.0 * exp_factor * (1.0 + 1.0 / v_i)
+            w_i = exp_factor * v_i
+            dx0 = x_i[0] - target_center[0]
+            dx1 = x_i[1] - target_center[1]
+            a_u0 = dx0 * sigma[0][0] + dx1 * sigma[1][0]
+            a_u1 = dx0 * sigma[0][1] + dx1 * sigma[1][1]
+            gradient_term = (float(alpha * a_u0), float(alpha * a_u1))
+            gamma_w = float(gamma_3 * w_i)
             max_coupling = max((abs(float(t["weighted_term"])) for t in coupling_terms), default=0.0)
             dominant = "gamma3W" if abs(gamma_w) >= max_coupling else "weighted_clf_coupling"
         else:
             w_i = 0.0
             gradient_term = (0.0, 0.0)
             gamma_w = 0.0
-            coupling_terms = []
-            coupling_sum = 0.0
-            dominant = "inactive"
+            # Communication mode keeps the coupling row of an agent inside its inner target region.
+            dominant = "weighted_clf_coupling" if clf_coupling == "communication" else "inactive"
         clf_label = f"clf(i={agent_id},{'active' if v_i > 0.0 else 'inactive'})"
         clf_A, clf_b = self._final_row_for_label(qp_data_labels, qp_data_A, qp_data_b, clf_label)
         out["clf"] = {
@@ -303,6 +312,7 @@ class DistributedController(Controller):
             alpha_clf=self.config.alpha_clf,
             alpha_connectivity=self.config.alpha_connectivity,
             debug_disable_clf_coupling=self.config.debug_disable_clf_coupling,
+            clf_coupling=self.config.clf_coupling,
             lambda_2=float(kwargs["lambda_2"]) if "lambda_2" in kwargs else None,
             v2=kwargs["v2"] if "v2" in kwargs else None,  # type: ignore[arg-type]
             n_agents=int(kwargs.get("n_agents", len(all_agent_states))),
@@ -540,7 +550,7 @@ class DistributedController(Controller):
                     sigma_w1 = s10 * fs.w[0] + s11 * fs.w[1]
                     x_sigma_w = dx0 * sigma_w0 + dx1 * sigma_w1
                     clf_drift_term = 2.0 * exp_factor_clf * (1.0 + 1.0 / v_i) * x_sigma_w
-                if h_i_clf != 0.0:
+                if h_i_clf != 0.0 or self.config.clf_coupling == "communication":
                     for j_id, fast_j in all_fast_states.items():
                         if j_id == i_id:
                             continue
@@ -553,7 +563,8 @@ class DistributedController(Controller):
                             epsilon=epsilon,
                         )
                         h_j = math.exp(-1.0 / v_j) if v_j > 0.0 else 0.0
-                        contribution = h * h_i_clf * h_j * (fs.z_clf - fast_j.z_clf)
+                        g_i, g_j = clf_coupling_gates(h_i_clf, h_j, self.config.clf_coupling)
+                        contribution = h * g_i * g_j * (fs.z_clf - fast_j.z_clf)
                         clf_coupling_sum += contribution
                         clf_coupling_contributions.append((j_id, h, v_j, h_j, contribution))
                 obstacle_term_x = 0.0
@@ -717,6 +728,7 @@ class DistributedController(Controller):
                     epsilon_c=float(kwargs.get("epsilon_c", 0.5)),
                     v2=kwargs.get("v2") if isinstance(kwargs.get("v2"), dict) else None,  # type: ignore[arg-type]
                     n_agents=int(kwargs.get("n_agents", len(all_agent_states))),
+                    clf_coupling=self.config.clf_coupling,
                 ),
             }
             if store_records:
