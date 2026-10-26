@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 import utils.run_dirs as run_dirs
+from controller.local_qp import local_qp_solver_metadata
 from utils.init_generator import save_initialization_record
 from utils.run_dirs import OutputDirExistsError, make_unique_run_dir, prepare_explicit_dir
 
@@ -124,6 +125,7 @@ def test_runner_two_runs_two_dirs_first_preserved(tmp_path):
         assert d.name.split("_", 3)[3].startswith("step0_failure_2026-03-25_p")
         meta = json.loads((d / "run_meta.json").read_text())
         assert meta["status"] == "finished" and meta["output_dir"] == str(d)
+        assert meta["qp_solver_call"] == json.loads(json.dumps(local_qp_solver_metadata()))
 
 
 def test_runner_refuses_existing_results(tmp_path):
@@ -154,7 +156,9 @@ def test_main_two_runs_two_dirs_and_refusal(tmp_path):
     for d in dirs:
         assert {"run_meta.json", "run_report.json", "trajectories.json", "initial_conditions.json"} <= {
             p.name for p in d.iterdir()}
-        assert json.loads((d / "run_meta.json").read_text())["status"] == "finished"
+        meta = json.loads((d / "run_meta.json").read_text())
+        assert meta["status"] == "finished"
+        assert meta["local_qp_solver"] == json.loads(json.dumps(local_qp_solver_metadata()))
     snap = _snapshot(dirs[0])
     p3 = _run(["main.py", "--config", STEP0, "--out", str(dirs[0])])
     assert p3.returncode == 2 and "already contains results" in p3.stderr

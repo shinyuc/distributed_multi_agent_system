@@ -58,7 +58,7 @@ class LocalQPSolveResult:
 
 
 def solve_local_qp(qp_data: LocalQPData) -> tuple[float, float]:
-    """Solve local QP with cvxpy and return (u_x, u_y)."""
+    """Solve local QP with OSQP and return (u_x, u_y)."""
     u, _, _ = solve_local_qp_with_status(qp_data)
     return u
 
@@ -71,9 +71,54 @@ def solve_local_qp_with_status(
     return result.u, result.success, result.reason
 
 
-def _osqp_residuals(problem: Any) -> tuple[float | None, float | None]:
-    extra = getattr(getattr(problem, "solver_stats", None), "extra_stats", None)
-    info = getattr(extra, "info", None)
+# The local QP used to be solved through cvxpy (solver=OSQP); it is now passed to OSQP
+# directly, reproducing what that call did so that results and reported statuses are
+# unchanged:
+#   - same OSQP data: P, q, A (csc), l = -inf, u = b;
+#   - the settings that were in effect: cvxpy's defaults eps_abs = eps_rel = 1e-5 and
+#     max_iter = 10000, verbose off, and polishing off (cvxpy forwarded polish=False,
+#     which OSQP >= 1 maps onto "polishing"); OSQP's warm_starting default is left as is
+#     and has no effect on a freshly set-up solver;
+#   - cvxpy's status names (cvxpy OSQP.STATUS_MAP for OSQP >= 1, keyed by status_val);
+#   - cvxpy's reporting: iteration count only when a solution is present, solve time =
+#     OSQP run_time, and the same exception messages for solver errors and NaN data.
+_OSQP_SETTINGS = dict(eps_abs=1e-5, eps_rel=1e-5, max_iter=10000, verbose=False, polishing=False)
+_OSQP_STATUS = {
+    1: "optimal",
+    2: "optimal_inaccurate",
+    3: "infeasible",
+    4: "infeasible_inaccurate",
+    5: "unbounded",
+    6: "unbounded_inaccurate",
+    7: "user_limit",
+    8: "user_limit",
+    10: "solver_error",
+    11: "solver_error",
+}
+_OSQP_SOLUTION_PRESENT = {"optimal", "optimal_inaccurate", "user_limit"}
+_OSQP_FAILED_MESSAGE = (
+    "Solver 'OSQP' failed. Try another solver, or solve with verbose=True for more information."
+)
+
+
+def local_qp_solver_metadata() -> dict[str, Any]:
+    """Describe the local QP solve (solver, version, effective settings) for run metadata."""
+    try:
+        import osqp
+
+        version = osqp.__version__
+    except ImportError:
+        version = None
+    return {
+        "solver": "OSQP, called directly by controller.local_qp.solve_local_qp_detailed (no cvxpy)",
+        "osqp_version": version,
+        "setup": "fresh OSQP instance per QP; no warm start from previous solves",
+        "settings": dict(_OSQP_SETTINGS),
+    }
+
+
+def _osqp_residuals(results: Any) -> tuple[float | None, float | None]:
+    info = getattr(results, "info", None)
     if info is None:
         return None, None
     pri = getattr(info, "pri_res", getattr(info, "prim_res", None))
@@ -86,10 +131,11 @@ def solve_local_qp_detailed(qp_data: LocalQPData) -> LocalQPSolveResult:
     # Fallback policy: if assembly/solve fails or problem is not solved reliably,
     # return (0.0, 0.0) so control remains well-defined and simulation can continue.
     try:
-        import cvxpy as cp
+        import osqp
+        import scipy.sparse as sp
     except ImportError:
-        # WARNING: Fallback path if cvxpy is unavailable.
-        return LocalQPSolveResult((0.0, 0.0), False, "cvxpy import failed", None)
+        # WARNING: Fallback path if OSQP is unavailable.
+        return LocalQPSolveResult((0.0, 0.0), False, "osqp import failed", None)
 
     try:
         P = np.asarray(qp_data.P, dtype=float)
@@ -114,20 +160,25 @@ def solve_local_qp_detailed(qp_data: LocalQPData) -> LocalQPSolveResult:
                 None,
             )
 
-        u = cp.Variable(2)
-        objective = 0.5 * cp.quad_form(u, P) + q @ u
-        constraints: list[Any] = []
-        if A.shape[0] > 0:
-            constraints.append(A @ u <= b)
-        problem = cp.Problem(cp.Minimize(objective), constraints)
+        # Same data checks (and messages) cvxpy applied before calling OSQP.
+        if not np.allclose(P, P.T):
+            raise ValueError("Quadratic form matrices must be symmetric/Hermitian.")
+        if not (np.isfinite(P).all() and np.isfinite(q).all() and np.isfinite(A).all()):
+            raise ValueError("Problem data contains NaN or Inf. Check your parameter values and constants.")
+        if np.isnan(b).any():
+            raise ValueError("Problem data contains NaN. Check your parameter values and constants.")
+
         t0 = time.perf_counter()
-        problem.solve(solver=cp.OSQP, warm_start=True, verbose=False, polish=False)
+        solver = osqp.OSQP()
+        solver.setup(sp.csc_matrix(P), q, sp.csc_matrix(A), np.full(b.shape, -np.inf), b, **_OSQP_SETTINGS)
+        results = solver.solve(raise_error=False)
         wall = time.perf_counter() - t0
-        status = str(problem.status)
-        stats = getattr(problem, "solver_stats", None)
-        num_iters = getattr(stats, "num_iters", None)
-        solve_time = getattr(stats, "solve_time", None)
-        pri_res, dua_res = _osqp_residuals(problem)
+        status = _OSQP_STATUS.get(results.info.status_val, "solver_error")
+        if status == "solver_error":
+            raise RuntimeError(_OSQP_FAILED_MESSAGE)
+        num_iters = results.info.iter if status in _OSQP_SOLUTION_PRESENT else None
+        solve_time = results.info.run_time
+        pri_res, dua_res = _osqp_residuals(results)
         details = dict(
             status=status,
             num_iters=int(num_iters) if num_iters is not None else None,
@@ -137,11 +188,11 @@ def solve_local_qp_detailed(qp_data: LocalQPData) -> LocalQPSolveResult:
             dua_res=dua_res,
         )
 
-        if problem.status not in {"optimal", "optimal_inaccurate"} or u.value is None:
+        if status not in {"optimal", "optimal_inaccurate"} or results.x is None:
             # WARNING: Fallback path if QP is infeasible or solver failed.
-            return LocalQPSolveResult((0.0, 0.0), False, f"solver status={problem.status}", **details)
+            return LocalQPSolveResult((0.0, 0.0), False, f"solver status={status}", **details)
 
-        return LocalQPSolveResult((float(u.value[0]), float(u.value[1])), True, status, **details)
+        return LocalQPSolveResult((float(results.x[0]), float(results.x[1])), True, status, **details)
     except Exception as exc:
         # WARNING: Fallback path for any runtime solver/assembly error.
         return LocalQPSolveResult((0.0, 0.0), False, f"exception: {exc}", "exception")

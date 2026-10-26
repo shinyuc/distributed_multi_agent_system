@@ -40,6 +40,7 @@ import scipy
 from config import load_config
 from controller.controller_factory import build_controller
 from controller.distributed_controller import DistributedController
+from controller.local_qp import local_qp_solver_metadata
 from diagnostics.feasibility import Tolerances
 from diagnostics.recorder import FeasibilityRecorder
 from main import _set_seed
@@ -190,7 +191,7 @@ def main() -> None:
         "git_commit": _git_commit(),
         "versions": {"python": platform.python_version(), "cvxpy": cvxpy.__version__,
                      "osqp": osqp.__version__, "scipy": scipy.__version__},
-        "qp_solver_call": "cvxpy OSQP warm_start=True polish=False (cvxpy defaults eps_abs=eps_rel=1e-5, max_iter=10000)",
+        "qp_solver_call": local_qp_solver_metadata(),
     }
     with (out_dir / "run_meta.json").open("w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2)

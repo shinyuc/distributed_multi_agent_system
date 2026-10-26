@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 
 from config import load_config
 from controller.controller_factory import build_controller
+from controller.local_qp import local_qp_solver_metadata
 from models.agent import AgentState
 from models.environment import CircularObstacle, Environment, TargetRegion
 from simulation.reporting import build_run_report, interval_note, short_status
@@ -313,6 +314,7 @@ def main() -> None:
         "started_at": datetime.now().isoformat(timespec="microseconds"),
         "argv": sys.argv,
         "git_commit": _git_commit(),
+        "local_qp_solver": local_qp_solver_metadata(),
     }
     _write_run_meta(out_dir, run_meta)
     print(f"outputs: {out_dir}")
