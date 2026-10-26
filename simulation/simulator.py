@@ -94,6 +94,7 @@ class Simulator:
         dt: float,
         steps: int,
         fast_tau: float = 0.1,
+        fast_substeps: int = 1,
         fast_xi: float = 1.0,
         fast_d_c: float = 2.0,
         fast_target_center: Vector2 | None = None,
@@ -112,6 +113,8 @@ class Simulator:
             raise ValueError(f"steps must be > 0, got {steps}.")
         if fast_tau <= 0:
             raise ValueError(f"fast_tau must be > 0, got {fast_tau}.")
+        if isinstance(fast_substeps, bool) or not isinstance(fast_substeps, int) or fast_substeps < 1:
+            raise ValueError(f"fast_substeps must be an integer >= 1, got {fast_substeps!r}.")
         if fast_xi < 0:
             raise ValueError(f"fast_xi must be >= 0, got {fast_xi}.")
         if fast_d_c <= 0:
@@ -150,6 +153,7 @@ class Simulator:
         self.dt = dt
         self.steps = steps
         self.fast_tau = fast_tau
+        self.fast_substeps = fast_substeps
         self.fast_xi = fast_xi
         self.fast_d_c = fast_d_c
         self.fast_target_center = fast_target_center
@@ -650,44 +654,50 @@ class Simulator:
                 if stopped_early:
                     break
 
-                # b) Update all fast states (synchronously).
+                # b) Update all fast states (synchronously) with M Euler substeps of
+                #    dt / M. x_k, u_k, lambda_2 and v2 stay fixed across the substeps;
+                #    self.fast_states is only replaced once all substeps pass the guard.
                 if getattr(self.controller, "uses_fast_dynamics", True):
-                    updated_fast_states: dict[int, FastState] = {}
-                    for agent in self.agents:
-                        updated_fast_states[agent.agent_id] = update_fast_state(
-                            i=agent.agent_id,
-                            state=prev_fast_states[agent.agent_id],
-                            step_idx=step_idx,
-                            all_fast_states=prev_fast_states,
-                            all_agent_states=all_agent_states,
-                            dt=self.dt,
-                            tau=self.fast_tau,
-                            xi=self.fast_xi,
-                            d_c=self.fast_d_c,
-                            target_center=self.fast_target_center,
-                            sigma=self.fast_sigma,
-                            epsilon=self.fast_epsilon,
-                            gamma_1=self.fast_gamma_1,
-                            gamma_2=self.fast_gamma_1,
-                            gamma_3=getattr(self.controller, "config").clf_rate,
-                            d_0=self.fast_d_0,
-                            alpha_clf=getattr(self.controller, "config").alpha_clf,
-                            x_i=all_agent_states[agent.agent_id].position,
-                            u_i=controls[agent.agent_id],
-                            obstacles=self.env.obstacles,
-                            u_max=getattr(self.controller, "config").u_max,
-                            eta=self.fast_eta,
-                            epsilon_c=self.fast_epsilon_c,
-                            lambda_2=lambda_2_runtime,
-                            v2=v2_runtime,
-                            n_agents=len(self.agents),
-                        )
-                    for agent in self.agents:
-                        self._check_fast_state_explosion(
-                            step_idx=step_idx,
-                            agent_id=agent.agent_id,
-                            state=updated_fast_states[agent.agent_id],
-                        )
+                    fast_dt = self.dt / self.fast_substeps
+                    updated_fast_states: dict[int, FastState] = prev_fast_states
+                    for _ in range(self.fast_substeps):
+                        substep_fast_states = updated_fast_states
+                        updated_fast_states = {}
+                        for agent in self.agents:
+                            updated_fast_states[agent.agent_id] = update_fast_state(
+                                i=agent.agent_id,
+                                state=substep_fast_states[agent.agent_id],
+                                step_idx=step_idx,
+                                all_fast_states=substep_fast_states,
+                                all_agent_states=all_agent_states,
+                                dt=fast_dt,
+                                tau=self.fast_tau,
+                                xi=self.fast_xi,
+                                d_c=self.fast_d_c,
+                                target_center=self.fast_target_center,
+                                sigma=self.fast_sigma,
+                                epsilon=self.fast_epsilon,
+                                gamma_1=self.fast_gamma_1,
+                                gamma_2=self.fast_gamma_1,
+                                gamma_3=getattr(self.controller, "config").clf_rate,
+                                d_0=self.fast_d_0,
+                                alpha_clf=getattr(self.controller, "config").alpha_clf,
+                                x_i=all_agent_states[agent.agent_id].position,
+                                u_i=controls[agent.agent_id],
+                                obstacles=self.env.obstacles,
+                                u_max=getattr(self.controller, "config").u_max,
+                                eta=self.fast_eta,
+                                epsilon_c=self.fast_epsilon_c,
+                                lambda_2=lambda_2_runtime,
+                                v2=v2_runtime,
+                                n_agents=len(self.agents),
+                            )
+                        for agent in self.agents:
+                            self._check_fast_state_explosion(
+                                step_idx=step_idx,
+                                agent_id=agent.agent_id,
+                                state=updated_fast_states[agent.agent_id],
+                            )
                     self.fast_states = updated_fast_states
                     if step_idx == 4:
                         fast_states_step_4_snapshot = copy.deepcopy(self.fast_states)

@@ -87,6 +87,8 @@ class FastDynamicsConfig:
     epsilon_c: float = 0.5
     lambda_2: float = 0.0
     v2: list[float] | None = None
+    # Number M of fast Euler substeps per slow step (fast step = dt / M).
+    substeps: int = 1
 
 
 @dataclass
@@ -204,6 +206,14 @@ def load_config(path: str) -> Config:
         )
     if fast_dynamics.tau <= 0:
         raise ValueError(f"fast_dynamics.tau must be > 0, got {fast_dynamics.tau}.")
+    if (
+        isinstance(fast_dynamics.substeps, bool)
+        or not isinstance(fast_dynamics.substeps, int)
+        or fast_dynamics.substeps < 1
+    ):
+        raise ValueError(
+            f"fast_dynamics.substeps must be an integer >= 1, got {fast_dynamics.substeps!r}."
+        )
     if fast_dynamics.xi < 0:
         raise ValueError(f"fast_dynamics.xi must be >= 0, got {fast_dynamics.xi}.")
     if fast_dynamics.d_c <= 0:
