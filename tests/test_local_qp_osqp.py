@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import io
 import math
+import sys
 import time
 import warnings
 from typing import Any
@@ -203,3 +204,37 @@ def test_status_table_matches_cvxpy_osqp_interface():
     from cvxpy.reductions.solvers.qp_solvers.osqp_qpif import OSQP as CvxpyOSQP
 
     assert {k: str(v) for k, v in CvxpyOSQP.STATUS_MAP.items()} == lq._OSQP_STATUS
+
+
+@pytest.mark.parametrize("default_backend", ["cuda", "mkl"])
+@pytest.mark.parametrize("via_env_variable", [False, True])
+def test_builtin_backend_is_used_whatever_osqp_would_pick_by_default(monkeypatch, default_backend, via_env_variable):
+    """Installing osqp-cuda / osqp-mkl or setting OSQP_ALGEBRA_BACKEND must not change the local QP solve."""
+    import types
+
+    import osqp.interface as oi
+
+    qps = _random_qps(seed=4, n=20)
+    expected = [solve_local_qp_detailed(q) for q in qps]
+
+    # Make another backend OSQP's default: its module becomes importable, and optionally the
+    # module-level value OSQP reads from the OSQP_ALGEBRA_BACKEND environment variable names it.
+    monkeypatch.setitem(sys.modules, oi._ALGEBRA_MODULES[default_backend], types.ModuleType("fake_backend"))
+    monkeypatch.setattr(oi, "OSQP_ALGEBRA_BACKEND", default_backend if via_env_variable else None)
+    assert oi.default_algebra() == default_backend
+
+    used: list[str] = []
+    original_init = osqp.OSQP.__init__
+
+    def init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        used.append(self.algebra)
+
+    monkeypatch.setattr(osqp.OSQP, "__init__", init)
+    got = [solve_local_qp_detailed(q) for q in qps]
+    assert used and set(used) == {"builtin"}
+    for e, g in zip(expected, got):
+        assert all(_same(getattr(e, f), getattr(g, f)) for f in COMPARED)
+    meta = lq.local_qp_solver_metadata()
+    assert meta["algebra"] == "builtin" and meta["requested_algebra"] == "builtin"
+    assert meta["linear_solver"].startswith("direct") and meta["float_precision"] == "float64"

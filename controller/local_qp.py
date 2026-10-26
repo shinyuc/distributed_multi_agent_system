@@ -83,6 +83,10 @@ def solve_local_qp_with_status(
 #   - cvxpy's reporting: iteration count only when a solution is present, solve time =
 #     OSQP run_time, and the same exception messages for solver errors and NaN data.
 _OSQP_SETTINGS = dict(eps_abs=1e-5, eps_rel=1e-5, max_iter=10000, verbose=False, polishing=False)
+# OSQP otherwise picks the first importable backend among cuda, mkl, builtin (or the one named
+# by the OSQP_ALGEBRA_BACKEND environment variable), so installing osqp-cuda / osqp-mkl would
+# silently change the linear solver. The builtin CPU backend is the one all results so far used.
+_OSQP_ALGEBRA = "builtin"
 _OSQP_STATUS = {
     1: "optimal",
     2: "optimal_inaccurate",
@@ -102,19 +106,35 @@ _OSQP_FAILED_MESSAGE = (
 
 
 def local_qp_solver_metadata() -> dict[str, Any]:
-    """Describe the local QP solve (solver, version, effective settings) for run metadata."""
-    try:
-        import osqp
+    """Describe the local QP solve (solver, version, backend, effective settings) for run metadata.
 
-        version = osqp.__version__
-    except ImportError:
-        version = None
-    return {
+    Backend, linear solver and precision are read from an OSQP instance set up exactly as in
+    solve_local_qp_detailed, so they report what is actually used.
+    """
+    meta: dict[str, Any] = {
         "solver": "OSQP, called directly by controller.local_qp.solve_local_qp_detailed (no cvxpy)",
-        "osqp_version": version,
+        "osqp_version": None,
         "setup": "fresh OSQP instance per QP; no warm start from previous solves",
         "settings": dict(_OSQP_SETTINGS),
+        "requested_algebra": _OSQP_ALGEBRA,
+        "algebra": None,
+        "linear_solver": None,
+        "float_precision": None,
     }
+    try:
+        import osqp
+        import scipy.sparse as sp
+
+        meta["osqp_version"] = osqp.__version__
+        probe = osqp.OSQP(algebra=_OSQP_ALGEBRA)
+        probe.setup(sp.csc_matrix(np.eye(2)), np.zeros(2), sp.csc_matrix(np.eye(2)), np.full(2, -np.inf),
+                    np.ones(2), **_OSQP_SETTINGS)
+        meta["algebra"] = probe.algebra
+        meta["linear_solver"] = f"{probe.solver_type} ({probe.settings.linsys_solver.name})"
+        meta["float_precision"] = "float32" if probe.ext.OSQP_USE_FLOAT == 1 else "float64"
+    except Exception as exc:  # metadata must never break a run
+        meta["probe_error"] = f"{type(exc).__name__}: {exc}"
+    return meta
 
 
 def _osqp_residuals(results: Any) -> tuple[float | None, float | None]:
@@ -169,7 +189,7 @@ def solve_local_qp_detailed(qp_data: LocalQPData) -> LocalQPSolveResult:
             raise ValueError("Problem data contains NaN. Check your parameter values and constants.")
 
         t0 = time.perf_counter()
-        solver = osqp.OSQP()
+        solver = osqp.OSQP(algebra=_OSQP_ALGEBRA)
         solver.setup(sp.csc_matrix(P), q, sp.csc_matrix(A), np.full(b.shape, -np.inf), b, **_OSQP_SETTINGS)
         results = solver.solve(raise_error=False)
         wall = time.perf_counter() - t0

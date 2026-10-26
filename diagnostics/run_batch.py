@@ -7,8 +7,10 @@ Usage:
 Every scenario runs the unchanged feasibility runner (``python -m diagnostics.run_feasibility``)
 in its own child process, so each scenario keeps the full per-QP feasibility diagnostics
 (independent LP checks included) and a crash, timeout or error in one scenario only affects
-that scenario. At most ``--workers`` scenarios run at a time. Children are started with
-BLAS / OpenMP thread pools limited to one thread so that N workers use about N cores.
+that scenario. At most ``--workers`` scenarios run at a time (default: the detected CPU
+allocation - 1; see detect_cpu_allocation). Children are started with BLAS / OpenMP thread
+pools limited to one thread so that N workers use about N cores, and with the builtin OSQP
+backend.
 
 Batch spec (YAML):
 
@@ -59,6 +61,7 @@ import copy
 import csv
 import gzip
 import json
+import math
 import os
 import platform
 import re
@@ -85,6 +88,10 @@ THREAD_ENV = {
     "VECLIB_MAXIMUM_THREADS": "1",
     "NUMEXPR_NUM_THREADS": "1",
 }
+# OSQP reads OSQP_ALGEBRA_BACKEND at import time; a value naming a backend that is not installed
+# makes `import osqp` fail in the child. Children always use the builtin backend that
+# controller.local_qp selects explicitly.
+CHILD_SOLVER_ENV = {"OSQP_ALGEBRA_BACKEND": "builtin"}
 # Starts with a letter or digit, so "." and ".." (and hidden names) are impossible.
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 # Configuration values copied into the summary for every scenario.
@@ -285,10 +292,103 @@ def write_summary(batch_dir: Path, rows: list[dict[str, Any]], overrides: dict[s
         w.writerows(rows)
 
 
+# ------------------------------------------------------------------ CPU allocation
+def _read(path: Path) -> str | None:
+    try:
+        return path.read_text().strip()
+    except OSError:
+        return None
+
+
+def _ancestors(base: Path, rel: str) -> list[Path]:
+    """``base/rel`` and each of its parents up to ``base`` that exist (a cgroup limit applies to all descendants)."""
+    parts = [p for p in rel.strip("/").split("/") if p]
+    return [d for d in (base.joinpath(*parts[:k]) for k in range(len(parts), -1, -1)) if d.is_dir()]
+
+
+def _cgroup_cpu_limit(fs_root: Path) -> tuple[float | None, str | None]:
+    """Smallest CPU quota (in CPUs) over this process's cgroups (v2 or v1); (None, None) if none applies."""
+    base = fs_root / "sys" / "fs" / "cgroup"
+    found: list[tuple[float, str]] = []
+    for line in (_read(fs_root / "proc" / "self" / "cgroup") or "").splitlines():
+        try:
+            hierarchy, controllers, rel = line.split(":", 2)
+        except ValueError:
+            continue
+        if hierarchy == "0" and controllers == "":  # cgroup v2 (unified): cpu.max = "<quota> <period>" or "max ..."
+            for d in _ancestors(base, rel):
+                fields = (_read(d / "cpu.max") or "").split()
+                if len(fields) == 2 and fields[0] != "max":
+                    try:
+                        found.append((int(fields[0]) / int(fields[1]), f"cgroup v2 quota ({d / 'cpu.max'})"))
+                    except (ValueError, ZeroDivisionError):
+                        pass
+        elif "cpu" in controllers.split(","):  # cgroup v1 cpu controller: cfs quota/period, quota -1 = unlimited
+            mounts = dict.fromkeys(base / name for name in (controllers, "cpu", "cpu,cpuacct", "cpuacct,cpu"))
+            for mount in mounts:
+                if not mount.is_dir():
+                    continue
+                for d in _ancestors(mount, rel):
+                    quota, period = _read(d / "cpu.cfs_quota_us"), _read(d / "cpu.cfs_period_us")
+                    try:
+                        if quota is not None and period is not None and int(quota) > 0:
+                            found.append((int(quota) / int(period), f"cgroup v1 quota ({d / 'cpu.cfs_quota_us'})"))
+                    except (ValueError, ZeroDivisionError):
+                        pass
+    return min(found) if found else (None, None)
+
+
+def _affinity_cpus() -> int | None:
+    if hasattr(os, "sched_getaffinity"):  # Linux
+        try:
+            return len(os.sched_getaffinity(0))
+        except OSError:
+            return None
+    if hasattr(os, "process_cpu_count"):  # Python >= 3.13 (affinity-aware where the OS supports it)
+        return os.process_cpu_count()
+    return None
+
+
+def detect_cpu_allocation(*, cpu_count=os.cpu_count, affinity=_affinity_cpus, fs_root: str | Path = "/") -> dict[str, Any]:
+    """CPUs this process may use: the smallest of logical CPUs, CPU affinity and cgroup quota.
+
+    Each source is optional (e.g. no affinity API on macOS, no cgroups outside Linux); with no
+    information at all the allocation is 1. A fractional quota is rounded down, but never below 1.
+    """
+    logical = cpu_count()
+    aff = affinity()
+    quota, quota_source = _cgroup_cpu_limit(Path(fs_root))
+    candidates = [(float(v), method) for v, method in (
+        (logical, "logical CPUs (os.cpu_count)"),
+        (aff, "CPU affinity"),
+        (quota, quota_source),
+    ) if v]
+    if candidates:
+        limit, method = min(candidates, key=lambda c: c[0])
+        allocated = max(1, math.floor(limit))
+    else:
+        allocated, method = 1, "fallback: no CPU information available"
+    return {
+        "logical_cpus": logical,
+        "affinity_cpus": aff,
+        "cgroup_cpu_quota": quota,
+        "cgroup_quota_source": quota_source,
+        "allocated_cpus": allocated,
+        "method": method,
+    }
+
+
+def default_workers(cpu: dict[str, Any] | None = None) -> int:
+    """One worker per allocated CPU, leaving one for the system and the batch process (at least 1)."""
+    cpu = cpu if cpu is not None else detect_cpu_allocation()
+    return max(1, cpu["allocated_cpus"] - 1)
+
+
 # ------------------------------------------------------------------ execution
 def _child_env() -> dict[str, str]:
     env = dict(os.environ)
     env.update(THREAD_ENV)
+    env.update(CHILD_SOLVER_ENV)
     env["PYTHONPATH"] = os.pathsep.join([str(REPO), *filter(None, [env.get("PYTHONPATH")])])
     return env
 
@@ -302,8 +402,12 @@ def _git_commit() -> str | None:
 
 
 def run_batch(spec_path: str | Path, batch_dir: Path, workers: int, timeout: float | None = None,
-              poll_interval: float = 0.2) -> list[dict[str, Any]]:
-    """Run every scenario of ``spec_path`` into ``batch_dir`` (must exist and be empty)."""
+              poll_interval: float = 0.2, workers_source: str = "explicit") -> list[dict[str, Any]]:
+    """Run every scenario of ``spec_path`` into ``batch_dir`` (must exist and be empty).
+
+    ``workers`` is used as given. If it exceeds the detected CPU allocation a warning is printed
+    and recorded in batch_meta.json, but the value is not changed.
+    """
     if workers < 1:
         raise ValueError(f"workers must be >= 1, got {workers}")
     batch_dir = Path(batch_dir)
@@ -312,13 +416,24 @@ def run_batch(spec_path: str | Path, batch_dir: Path, workers: int, timeout: flo
     spec = load_spec(spec_path)
     (batch_dir / "batch_spec.yaml").write_text(Path(spec_path).read_text())
     env = _child_env()
+    cpu = detect_cpu_allocation()
+    batch_warnings: list[str] = []
+    if workers > cpu["allocated_cpus"]:
+        batch_warnings.append(
+            f"workers={workers} exceeds the detected CPU allocation of {cpu['allocated_cpus']} "
+            f"({cpu['method']}); scenarios will share CPUs. The requested value is used unchanged.")
+        print(f"[batch] WARNING: {batch_warnings[-1]}", file=sys.stderr, flush=True)
     meta: dict[str, Any] = {
         "status": "running",
         "spec": str(Path(spec_path).resolve()),
         "batch_name": spec["name"],
         "workers": workers,
+        "workers_source": workers_source,
+        "cpu_allocation": cpu,
+        "warnings": batch_warnings,
         "timeout_s": timeout,
         "child_thread_env": THREAD_ENV,
+        "child_solver_env": CHILD_SOLVER_ENV,
         "python": platform.python_version(),
         "local_qp_solver": local_qp_solver_metadata(),
         "git_commit": _git_commit(),
@@ -407,16 +522,12 @@ def run_batch(spec_path: str | Path, batch_dir: Path, workers: int, timeout: flo
     return rows
 
 
-def default_workers() -> int:
-    return max(1, (os.cpu_count() or 2) - 1)
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--spec", required=True, help="batch spec YAML")
-    parser.add_argument("--workers", type=int, default=default_workers(),
-                        help="maximum number of scenarios running at once (default: CPU count - 1; on an "
-                             "11-core M3 Pro, 10 workers gave the highest throughput)")
+    parser.add_argument("--workers", type=int, default=None,
+                        help="maximum number of scenarios running at once (default: detected CPU allocation "
+                             "- 1, considering logical CPUs, CPU affinity and cgroup quotas; benchmark to tune)")
     parser.add_argument("--timeout", type=float, default=None, help="per-scenario wall-clock limit in seconds")
     parser.add_argument("--output-root", default="outputs/batches",
                         help="parent of the unique batch directory used when --out is omitted")
@@ -434,7 +545,12 @@ def main() -> None:
         print(f"[OUTPUT ERROR] {exc}", file=sys.stderr)
         sys.exit(2)
     print(f"[batch] directory: {batch_dir}", file=sys.stderr, flush=True)
-    rows = run_batch(args.spec, batch_dir, workers=args.workers, timeout=args.timeout)
+    if args.workers is None:
+        workers, source = default_workers(), "automatic"
+    else:
+        workers, source = args.workers, "explicit"
+    print(f"[batch] workers: {workers} ({source})", file=sys.stderr, flush=True)
+    rows = run_batch(args.spec, batch_dir, workers=workers, timeout=args.timeout, workers_source=source)
     counts: dict[str, int] = {}
     for r in rows:
         counts[r["status"]] = counts.get(r["status"], 0) + 1
