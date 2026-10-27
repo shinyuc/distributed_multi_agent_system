@@ -1,0 +1,67 @@
+simulation:
+  dt: 0.001
+  steps: 100
+  seed: 42
+agents:
+  num_agents: 5
+  init_mode: manual
+  initial_positions:
+  - - -0.040555158951881554
+    - 1.20453620007862
+  - - -0.30044300733398727
+    - 0.8427457156553572
+  - - 0.18405858271348424
+    - 0.9600089882953239
+  - - 0.29505481318737337
+    - 1.675672117280791
+  - - 0.5687828061814099
+    - 1.4051314594407165
+  init_region:
+    center:
+    - -2.0
+    - 0.0
+    Sigma:
+    - - 2.0
+      - 0.0
+    - - 0.0
+      - 0.25
+    radius: 1.0
+    check_manual_positions: true
+    save_dir: outputs/init_conditions
+    max_sampling_attempts: 2000
+    max_global_restarts: 50
+obstacles:
+  obstacles:
+  - center:
+    - 0.37768672361296285
+    - 1.34612055174567
+    radius: 0.15
+target:
+  center:
+  - 0.0
+  - 0.0
+  radius: 1.0
+  Sigma:
+  - - 2.0
+    - 0.0
+  - - 0.0
+    - 0.25
+  epsilon: 0.5
+controller:
+  mode: distributed
+  u_max: 20.0
+  safety_distance: 0.2
+  clf_rate: 2.0
+  cbf_rate: 2.0
+  nominal_gain: 1.0
+  enable_connectivity_constraint: true
+  alpha_clf: 1.0
+  alpha_connectivity: 1.0
+  clf_coupling: gated
+fast_dynamics:
+  tau: 0.02
+  xi: 0.5
+  d_c: 0.9
+  eta: 0.1
+  epsilon_c: 0.1
+  substeps: 10

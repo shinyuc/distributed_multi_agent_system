@@ -405,3 +405,50 @@ def test_repository_pilot_inputs_are_complete_portable_and_unchanged(study):
     assert "run_batch --spec" in (PILOT16 / "SERVER_STEPS.sh").read_text()
     assert not any(ln.strip().startswith("$PY -m diagnostics.run_batch --spec \"$STUDY_DIR/pilot/pilot_batch")
                    for ln in (PILOT16 / "SERVER_STEPS.sh").read_text().splitlines())   # the pilot is only printed
+
+
+REMAINING32 = Path(__file__).resolve().parents[1] / "experiments/feasibility_study/remaining32"
+STUDY48_META = Path(__file__).resolve().parents[1] / "experiments/feasibility_study/study48"
+
+
+def test_repository_remaining32_inputs_are_complete_and_unchanged(study):
+    import hashlib
+    import json
+    from diagnostics.run_batch import load_spec
+    out, doc = study
+    sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+    sums = [ln.split("  ") for ln in (REMAINING32 / "SHA256SUMS").read_text().splitlines()]
+    assert all(sha(REMAINING32 / f) == h for h, f in sums)
+    present = {p.relative_to(REMAINING32).as_posix() for p in REMAINING32.rglob("*") if p.is_file()}
+    assert present == {f for _, f in sums} | {"SHA256SUMS"}
+    gen = {e["id"]: e for e in doc["scenarios"]}
+    rest = sorted(i for i, e in gen.items() if not e["pilot"])
+    assert len(rest) == 32 and sorted(p.stem for p in (REMAINING32 / "configs").glob("*.yaml")) == rest
+    man = {e["id"]: e for e in json.loads((REMAINING32 / "manifest_remaining32.json").read_text())["scenarios"]}
+    full = {e["id"]: e for e in json.loads((STUDY48_META / "manifest.json").read_text())["scenarios"]}
+    assert sorted(man) == rest and len(full) == 48
+    for sid in rest:                                                      # byte-identical to a fresh generation
+        assert (REMAINING32 / "configs" / f"{sid}.yaml").read_bytes() == (out / "configs" / f"{sid}.yaml").read_bytes()
+        assert man[sid]["config_sha256"] == full[sid]["config_sha256"] == gen[sid]["config_sha256"]
+    for sid in ("C04", "D11"):                                            # warm starts recomputed bit-identically
+        cfg = load_config(str(REMAINING32 / "configs" / f"{sid}.yaml"))
+        model = CertModel(cfg)
+        fs, info = frozen_warmup(model, cfg.agents.initial_positions, man[sid]["init"], max_steps=6000)
+        ref = pickle.load(open(REMAINING32 / "warm" / f"{sid}_warm.pkl", "rb"))
+        rows = model.rows(cfg.agents.initial_positions)
+        (p1, y1), (p2, y2) = rows.to_vec(fs), rows.to_vec(ref["warm"])
+        assert np.array_equal(p1, p2) and np.array_equal(y1, y2) and info["stop_step"] == ref["stop_step"]
+    pilot = {p.stem for p in (PILOT16 / "configs").glob("*.yaml")}
+    assert pilot.isdisjoint(rest) and pilot | set(rest) == set(full)
+    spec = load_spec(REMAINING32 / "batch/remaining32_batch.yaml")["scenarios"]
+    smoke = load_spec(REMAINING32 / "batch/remaining32_smoke_batch.yaml")["scenarios"]
+    assert sorted(s["id"] for s in spec) == rest and {s["id"] for s in smoke} <= set(rest)
+    for s in spec + smoke:
+        a = s["runner_args"]
+        assert s["runner"] == "diagnostics.study48.run_pilot" and s["overrides"] == {}
+        assert sha(Path(s["base_config"])) == man[s["id"]]["config_sha256"]
+        assert "--no-strict" not in a and a[a.index("--snapshot-every") + 1] == "1"
+        assert ("--warm" in a) == (s["id"] in ("C04", "D11"))
+        assert ("--max-steps" in a) == (s in smoke)
+    for p in (REMAINING32 / "batch").glob("*.yaml"):
+        assert "/Users/" not in p.read_text() and "/home/" not in p.read_text()

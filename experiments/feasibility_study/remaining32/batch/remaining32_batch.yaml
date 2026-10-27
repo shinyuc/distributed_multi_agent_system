@@ -1,0 +1,202 @@
+# Remaining 32 scenarios of the 48-scenario feasibility study (all non-pilot scenarios of manifest.json).
+# diagnostics.study48.run_pilot: unchanged run_feasibility pipeline + strict feasibility guard + a fast-state
+# snapshot at every step; C04 and D11 inject their frozen warm starts. Paths are relative to this file.
+# Order: estimated cost, longest first (scheduling only; scenario ids and parameters unchanged).
+name: study48_remaining32
+scenarios:
+- id: C05
+  base_config: ../configs/C05.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: D05
+  base_config: ../configs/D05.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: D06
+  base_config: ../configs/D06.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: D07
+  base_config: ../configs/D07.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: C06
+  base_config: ../configs/C06.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: C07
+  base_config: ../configs/C07.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: C08
+  base_config: ../configs/C08.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: C10
+  base_config: ../configs/C10.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: D09
+  base_config: ../configs/D09.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: D10
+  base_config: ../configs/D10.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: B08
+  base_config: ../configs/B08.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: C01
+  base_config: ../configs/C01.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: D01
+  base_config: ../configs/D01.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: A06
+  base_config: ../configs/A06.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: D12
+  base_config: ../configs/D12.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: A07
+  base_config: ../configs/A07.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: B09
+  base_config: ../configs/B09.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: A02
+  base_config: ../configs/A02.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: C04
+  base_config: ../configs/C04.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --warm
+  - path: ../warm/C04_warm.pkl
+  - --snapshot-every
+  - '1'
+- id: D11
+  base_config: ../configs/D11.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --warm
+  - path: ../warm/D11_warm.pkl
+  - --snapshot-every
+  - '1'
+- id: A05
+  base_config: ../configs/A05.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: A08
+  base_config: ../configs/A08.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: A10
+  base_config: ../configs/A10.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: A11
+  base_config: ../configs/A11.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: A12
+  base_config: ../configs/A12.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: B03
+  base_config: ../configs/B03.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: B05
+  base_config: ../configs/B05.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: B06
+  base_config: ../configs/B06.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: B10
+  base_config: ../configs/B10.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: B11
+  base_config: ../configs/B11.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: B12
+  base_config: ../configs/B12.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: C12
+  base_config: ../configs/C12.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'

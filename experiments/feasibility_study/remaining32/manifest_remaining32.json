@@ -1,0 +1,3296 @@
+{
+  "study": "48-scenario feasibility study (plan v2)",
+  "base_config": "configs/distributed_10_agents.yaml",
+  "scenarios": [
+    {
+      "id": "A02",
+      "group": "A",
+      "pilot": false,
+      "objective": "near-threshold Level-1 behaviour (u_max = 1.05 x LP threshold)",
+      "horizon_s": 0.5,
+      "init": "zero",
+      "pairs": [
+        [
+          "A01",
+          "single-parameter"
+        ]
+      ],
+      "exempt": [],
+      "notes": "",
+      "source": "P0",
+      "legacy": false,
+      "num_agents": 2,
+      "num_obstacles": 0,
+      "steps": 500,
+      "dt": 0.001,
+      "config": "configs/A02.yaml",
+      "config_sha256": "fe44d645e2f07c6bf89348f0152c8a0c4718667bcc53bc0ac6243e2e865eb376",
+      "changed_from_base": {
+        "simulation.steps": 500,
+        "agents.num_agents": 2,
+        "agents.initial_positions": [
+          [
+            -1.25,
+            0.25
+          ],
+          [
+            -1.25,
+            -0.25
+          ]
+        ],
+        "obstacles.obstacles": [],
+        "controller.u_max": 0.7989153412207959,
+        "controller.clf_rate": 2.0,
+        "controller.clf_coupling": "gated",
+        "fast_dynamics.substeps": 10
+      },
+      "calibration": {
+        "rule": "u_max = 1.05 * Level-1 LP actuator threshold"
+      },
+      "calibration_result": {
+        "finite_threshold": true,
+        "lo": 0.7608711575269698,
+        "hi": 0.7608717535436151,
+        "iterations": 25,
+        "threshold": 0.7608717535436151,
+        "evidence_lo": {
+          "verdict": "I",
+          "phi": 1.2014838079998924e-07,
+          "support": [
+            "pair{0,1}",
+            "clf(global)"
+          ]
+        },
+        "evidence_hi": {
+          "verdict": "F",
+          "witness_slack": -7.019374353083029e-07,
+          "lp_margin": -7.019374354299368e-07
+        }
+      },
+      "physical_validity": {
+        "min_pair_distance": 0.5,
+        "min_obstacle_clearance": Infinity,
+        "lambda2": 0.5871037130406731,
+        "lambda2_minus_eta": 0.4871037130406731,
+        "cutoff_margin": 0.30000000000000004,
+        "q": [
+          2.640625,
+          2.640625
+        ],
+        "sigma": [
+          0.6847522226931225,
+          0.6847522226931225
+        ],
+        "h_edges": {
+          "0-1": 0.0820849986238988
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": true,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true
+    },
+    {
+      "id": "A05",
+      "group": "A",
+      "pilot": false,
+      "objective": "joint CBF rate (A03 with cbf_rate 1)",
+      "horizon_s": 0.05,
+      "init": "zero",
+      "pairs": [
+        [
+          "A03",
+          "single-parameter"
+        ]
+      ],
+      "exempt": [],
+      "notes": "",
+      "source": "P0",
+      "legacy": false,
+      "num_agents": 2,
+      "num_obstacles": 2,
+      "steps": 50,
+      "dt": 0.001,
+      "config": "configs/A05.yaml",
+      "config_sha256": "5be31c06c00a71db10d9cd9c384e08835d27fef1eed1195129e26af590be59d8",
+      "changed_from_base": {
+        "simulation.steps": 50,
+        "agents.num_agents": 2,
+        "agents.initial_positions": [
+          [
+            -1.25,
+            0.25
+          ],
+          [
+            -1.25,
+            -0.25
+          ]
+        ],
+        "obstacles.obstacles": [
+          {
+            "center": [
+              -0.550218647514314,
+              0.23250546618785786
+            ],
+            "radius": 0.6
+          },
+          {
+            "center": [
+              -0.550218647514314,
+              -0.23250546618785786
+            ],
+            "radius": 0.6
+          }
+        ],
+        "controller.clf_rate": 1.0,
+        "controller.cbf_rate": 1.0,
+        "controller.clf_coupling": "gated",
+        "fast_dynamics.substeps": 10
+      },
+      "calibration": null,
+      "calibration_result": null,
+      "physical_validity": {
+        "min_pair_distance": 0.5,
+        "min_obstacle_clearance": 0.10000000000000009,
+        "lambda2": 0.5871037130406731,
+        "lambda2_minus_eta": 0.4871037130406731,
+        "cutoff_margin": 0.30000000000000004,
+        "q": [
+          2.640625,
+          2.640625
+        ],
+        "sigma": [
+          0.6847522226931225,
+          0.6847522226931225
+        ],
+        "h_edges": {
+          "0-1": 0.0820849986238988
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": true,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true
+    },
+    {
+      "id": "A06",
+      "group": "A",
+      "pilot": false,
+      "objective": "emergent centralized infeasibility at a narrow passage",
+      "horizon_s": 2.0,
+      "init": "zero",
+      "pairs": [
+        [
+          "C10",
+          "contrast"
+        ]
+      ],
+      "exempt": [],
+      "notes": "",
+      "source": "P0",
+      "legacy": false,
+      "num_agents": 3,
+      "num_obstacles": 2,
+      "steps": 2000,
+      "dt": 0.001,
+      "config": "configs/A06.yaml",
+      "config_sha256": "ffa24b9c953a4e1318cf09bcc06ae8bba612550823784828be83ea81dee57648",
+      "changed_from_base": {
+        "simulation.steps": 2000,
+        "agents.num_agents": 3,
+        "agents.initial_positions": [
+          [
+            -1.8,
+            -0.3
+          ],
+          [
+            -1.8,
+            0.0
+          ],
+          [
+            -1.8,
+            0.3
+          ]
+        ],
+        "obstacles.obstacles": [
+          {
+            "center": [
+              -0.9,
+              0.42
+            ],
+            "radius": 0.3
+          },
+          {
+            "center": [
+              -0.9,
+              -0.42
+            ],
+            "radius": 0.3
+          }
+        ],
+        "controller.clf_rate": 0.25,
+        "controller.clf_coupling": "gated",
+        "fast_dynamics.substeps": 10
+      },
+      "calibration": null,
+      "calibration_result": null,
+      "physical_validity": {
+        "min_pair_distance": 0.3,
+        "min_obstacle_clearance": 0.6079647570252933,
+        "lambda2": 0.9522219965908458,
+        "lambda2_minus_eta": 0.8522219965908459,
+        "cutoff_margin": 0.20000000000000007,
+        "q": [
+          6.0025,
+          5.98,
+          6.0025
+        ],
+        "sigma": [
+          0.8465404859002666,
+          0.8460100159449584,
+          0.8465404859002666
+        ],
+        "h_edges": {
+          "0-1": 0.18887560283756186,
+          "0-2": 0.03567399334725241,
+          "1-2": 0.18887560283756186
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": true,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true
+    },
+    {
+      "id": "A07",
+      "group": "A",
+      "pilot": false,
+      "objective": "CLF vs connectivity near the connectivity boundary (possible informative null)",
+      "horizon_s": 1.0,
+      "init": "zero",
+      "pairs": [
+        [
+          "C11",
+          "contrast"
+        ]
+      ],
+      "exempt": [
+        "lambda2_ge_eta_plus_0.01"
+      ],
+      "notes": "designated connectivity-boundary case (lambda2 - eta in [1e-3, 1e-2])",
+      "source": "P0",
+      "legacy": false,
+      "num_agents": 3,
+      "num_obstacles": 1,
+      "steps": 1000,
+      "dt": 0.001,
+      "config": "configs/A07.yaml",
+      "config_sha256": "2e710f82abb9023a457134d9ff9b4d941e1a790203e1fb9f0edf01f88033b27e",
+      "changed_from_base": {
+        "simulation.steps": 1000,
+        "agents.num_agents": 3,
+        "agents.initial_positions": [
+          [
+            -1.3,
+            -0.63
+          ],
+          [
+            -1.3,
+            0.0
+          ],
+          [
+            -1.3,
+            0.63
+          ]
+        ],
+        "obstacles.obstacles": [
+          {
+            "center": [
+              -0.85,
+              0.0
+            ],
+            "radius": 0.25
+          }
+        ],
+        "controller.clf_rate": 0.25,
+        "controller.clf_coupling": "gated",
+        "fast_dynamics.substeps": 10
+      },
+      "calibration": null,
+      "calibration_result": null,
+      "physical_validity": {
+        "min_pair_distance": 0.63,
+        "min_obstacle_clearance": 0.20000000000000007,
+        "lambda2": 0.10517993472418775,
+        "lambda2_minus_eta": 0.005179934724187749,
+        "cutoff_margin": 0.17000000000000004,
+        "q": [
+          2.9792250000000005,
+          2.8800000000000003,
+          2.9792250000000005
+        ],
+        "sigma": [
+          0.7148677178929612,
+          0.7066482778577163,
+          0.7148677178929612
+        ],
+        "h_edges": {
+          "0-1": 0.024632127216140883,
+          "1-2": 0.024632127216140883
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": false,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true
+    },
+    {
+      "id": "A08",
+      "group": "A",
+      "pilot": false,
+      "objective": "N-scaling of actuator infeasibility (N = 10)",
+      "horizon_s": 0.05,
+      "init": "zero",
+      "pairs": [
+        [
+          "A01",
+          "contrast"
+        ]
+      ],
+      "exempt": [],
+      "notes": "",
+      "source": "P0",
+      "legacy": false,
+      "num_agents": 10,
+      "num_obstacles": 0,
+      "steps": 50,
+      "dt": 0.001,
+      "config": "configs/A08.yaml",
+      "config_sha256": "77ce012ce6f034aa67d2d7f04ba106654a47c5adaf263b7b179f2c8e629037c6",
+      "changed_from_base": {
+        "simulation.steps": 50,
+        "agents.num_agents": 10,
+        "agents.initial_positions": [
+          [
+            -1.3,
+            -0.84
+          ],
+          [
+            -1.3,
+            -0.42
+          ],
+          [
+            -1.3,
+            0.0
+          ],
+          [
+            -1.3,
+            0.42
+          ],
+          [
+            -1.3,
+            0.84
+          ],
+          [
+            -1.72,
+            -0.84
+          ],
+          [
+            -1.72,
+            -0.42
+          ],
+          [
+            -1.72,
+            0.0
+          ],
+          [
+            -1.72,
+            0.42
+          ],
+          [
+            -1.72,
+            0.84
+          ]
+        ],
+        "obstacles.obstacles": [],
+        "controller.u_max": 0.05,
+        "controller.clf_rate": 2.0,
+        "controller.clf_coupling": "gated",
+        "fast_dynamics.substeps": 10
+      },
+      "calibration": null,
+      "calibration_result": null,
+      "physical_validity": {
+        "min_pair_distance": 0.41999999999999993,
+        "min_obstacle_clearance": Infinity,
+        "lambda2": 0.22476728845494795,
+        "lambda2_minus_eta": 0.12476728845494794,
+        "cutoff_margin": 0.03914855054991162,
+        "q": [
+          3.0564000000000004,
+          2.9241,
+          2.8800000000000003,
+          2.9241,
+          3.0564000000000004,
+          5.5931999999999995,
+          5.4609,
+          5.416799999999999,
+          5.4609,
+          5.5931999999999995
+        ],
+        "sigma": [
+          0.7209522971295795,
+          0.7103584563799643,
+          0.7066482778577163,
+          0.7103584563799643,
+          0.7209522971295795,
+          0.8362827303045517,
+          0.832668230773919,
+          0.8314277790471081,
+          0.832668230773919,
+          0.8362827303045517
+        ],
+        "h_edges": {
+          "0-1": 0.12451447144412302,
+          "0-2": 5.777748519419215e-08,
+          "0-5": 0.12451447144412302,
+          "0-6": 0.03809583752430154,
+          "1-2": 0.12451447144412302,
+          "1-3": 5.777748519419215e-08,
+          "1-5": 0.03809583752430154,
+          "1-6": 0.12451447144412302,
+          "1-7": 0.03809583752430154,
+          "2-3": 0.12451447144412302,
+          "2-4": 5.777748519419215e-08,
+          "2-6": 0.03809583752430154,
+          "2-7": 0.12451447144412302,
+          "2-8": 0.03809583752430154,
+          "3-4": 0.12451447144412302,
+          "3-7": 0.03809583752430154,
+          "3-8": 0.12451447144412302,
+          "3-9": 0.03809583752430154,
+          "4-8": 0.03809583752430154,
+          "4-9": 0.12451447144412302,
+          "5-6": 0.12451447144412302,
+          "5-7": 5.777748519419215e-08,
+          "6-7": 0.12451447144412302,
+          "6-8": 5.777748519419215e-08,
+          "7-8": 0.12451447144412302,
+          "7-9": 5.777748519419215e-08,
+          "8-9": 0.12451447144412302
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": true,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true
+    },
+    {
+      "id": "A10",
+      "group": "A",
+      "pilot": false,
+      "objective": "random clutter family FA (replicate)",
+      "horizon_s": 0.2,
+      "init": "zero",
+      "pairs": [
+        [
+          "A11",
+          "replicate"
+        ]
+      ],
+      "exempt": [],
+      "notes": "",
+      "source": "P0",
+      "legacy": false,
+      "num_agents": 5,
+      "num_obstacles": 4,
+      "steps": 200,
+      "dt": 0.001,
+      "config": "configs/A10.yaml",
+      "config_sha256": "23e2f0b046647d4398207f00e3b002523ea00ed3ebacf0b07a87168916346955",
+      "changed_from_base": {
+        "simulation.steps": 200,
+        "agents.initial_positions": [
+          [
+            -1.8276115700595748,
+            0.011258537040965378
+          ],
+          [
+            -1.7498422835441743,
+            -0.48979150011797856
+          ],
+          [
+            -1.3427066829127028,
+            0.1252740387171988
+          ],
+          [
+            -2.2736321793983807,
+            0.2868685091115751
+          ],
+          [
+            -2.2638779013450563,
+            -0.14250209388749702
+          ]
+        ],
+        "obstacles.obstacles": [
+          {
+            "center": [
+              -0.9,
+              -0.6
+            ],
+            "radius": 0.2
+          },
+          {
+            "center": [
+              -0.9,
+              -0.2
+            ],
+            "radius": 0.2
+          },
+          {
+            "center": [
+              -0.9,
+              0.2
+            ],
+            "radius": 0.2
+          },
+          {
+            "center": [
+              -0.9,
+              0.6
+            ],
+            "radius": 0.2
+          }
+        ],
+        "controller.clf_rate": 1.0,
+        "controller.clf_coupling": "gated",
+        "fast_dynamics.substeps": 10
+      },
+      "calibration": {
+        "family": "FA",
+        "seed": 101,
+        "rejections": 8
+      },
+      "calibration_result": null,
+      "physical_validity": {
+        "min_pair_distance": 0.4294813856968988,
+        "min_obstacle_clearance": 0.24896901495003754,
+        "lambda2": 0.3164087194863338,
+        "lambda2_minus_eta": 0.2164087194863338,
+        "cutoff_margin": 0.03677992342674108,
+        "q": [
+          6.180359790695324,
+          5.683869962955136,
+          3.109645868870996,
+          9.859379959771635,
+          9.755363016087573
+        ],
+        "sigma": [
+          0.8506088619018032,
+          0.8386712649710084,
+          0.7250026084984322,
+          0.9035478077302113,
+          0.9025711837779372
+        ],
+        "h_edges": {
+          "0-1": 0.07848483667146279,
+          "0-2": 0.08304610465417743,
+          "0-3": 0.06982729774662155,
+          "0-4": 0.10166440709336112,
+          "1-2": 0.0021166412843007226,
+          "1-4": 0.0279878362594541,
+          "3-4": 0.1193954210044375
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": true,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true
+    },
+    {
+      "id": "A11",
+      "group": "A",
+      "pilot": false,
+      "objective": "random clutter family FA (replicate)",
+      "horizon_s": 0.2,
+      "init": "zero",
+      "pairs": [
+        [
+          "A10",
+          "replicate"
+        ]
+      ],
+      "exempt": [],
+      "notes": "",
+      "source": "P0",
+      "legacy": false,
+      "num_agents": 5,
+      "num_obstacles": 4,
+      "steps": 200,
+      "dt": 0.001,
+      "config": "configs/A11.yaml",
+      "config_sha256": "69f196f56cbf65f92fec4353581a23f8a9a35c1c4ebbc8fb068456c473bdfd40",
+      "changed_from_base": {
+        "simulation.steps": 200,
+        "agents.initial_positions": [
+          [
+            -1.297240423334722,
+            -0.4243074957274425
+          ],
+          [
+            -1.664861704596826,
+            -0.5350737618769695
+          ],
+          [
+            -1.5082647078760403,
+            0.08755137547090572
+          ],
+          [
+            -2.2480584339740424,
+            -0.4635866390164604
+          ],
+          [
+            -1.7706362602304182,
+            -0.007187128450989766
+          ]
+        ],
+        "obstacles.obstacles": [
+          {
+            "center": [
+              -0.9,
+              -0.6
+            ],
+            "radius": 0.2
+          },
+          {
+            "center": [
+              -0.9,
+              -0.2
+            ],
+            "radius": 0.2
+          },
+          {
+            "center": [
+              -0.9,
+              0.2
+            ],
+            "radius": 0.2
+          },
+          {
+            "center": [
+              -0.9,
+              0.6
+            ],
+            "radius": 0.2
+          }
+        ],
+        "controller.clf_rate": 1.0,
+        "controller.clf_coupling": "gated",
+        "fast_dynamics.substeps": 10
+      },
+      "calibration": {
+        "family": "FA",
+        "seed": 102,
+        "rejections": 2
+      },
+      "calibration_result": null,
+      "physical_validity": {
+        "min_pair_distance": 0.2789519951715798,
+        "min_obstacle_clearance": 0.23435907955136803,
+        "lambda2": 0.26750639974804247,
+        "lambda2_minus_eta": 0.16750639974804246,
+        "cutoff_margin": 0.0225225570071671,
+        "q": [
+          2.9106746445999203,
+          5.115104973528391,
+          4.051641168885506,
+          9.661261588092293,
+          5.770318445789366
+        ],
+        "sigma": [
+          0.7092388252083193,
+          0.8224238295036137,
+          0.7812863392644255,
+          0.9016704766232005,
+          0.8408847557043667
+        ],
+        "h_edges": {
+          "0-1": 0.1440230523194006,
+          "0-2": 0.055728083078376164,
+          "0-4": 0.024313395905880893,
+          "1-2": 0.02072922004111956,
+          "1-3": 0.040736423816145145,
+          "1-4": 0.06295529311052352,
+          "2-4": 0.19985134033543844,
+          "3-4": 0.01537521591652895
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": true,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true
+    },
+    {
+      "id": "A12",
+      "group": "A",
+      "pilot": false,
+      "objective": "blind classification of the step-0 failure repro (label provisional)",
+      "horizon_s": null,
+      "init": "zero",
+      "pairs": [],
+      "exempt": [
+        "pair_ge_d0_plus_0.05",
+        "obstacle_clearance_ge_0.05",
+        "lambda2_ge_eta_plus_0.01",
+        "cutoff_margin_ge_0.02"
+      ],
+      "notes": "legacy diagnostic case: existing configuration used unchanged; its initial state violates the connectivity requirement (lambda2 < eta), which is reported, not repaired; lambda2 < eta does not by itself make the centralized QP infeasible",
+      "source": "repro",
+      "legacy": true,
+      "num_agents": 5,
+      "num_obstacles": 1,
+      "steps": 4000,
+      "dt": 0.0001,
+      "config": "configs/A12.yaml",
+      "config_sha256": "feefd708ecde0ca3cdc6ab53864f3a86ace157795a374d7dde0dd21cea603a0e",
+      "changed_from_base": {},
+      "calibration": null,
+      "calibration_result": null,
+      "physical_validity": {
+        "min_pair_distance": 0.3510134354062803,
+        "min_obstacle_clearance": 1.9165076444363964,
+        "lambda2": 0.0070970153600735985,
+        "lambda2_minus_eta": -0.09290298463992641,
+        "cutoff_margin": 0.014240405915436738,
+        "q": [
+          11.64405285269362,
+          8.044377523275152,
+          12.10326521211914,
+          14.028695821183339,
+          4.8108118800654625
+        ],
+        "sigma": [
+          0.9177036602286148,
+          0.8831056590222506,
+          0.9206987997861191,
+          0.9311988251522639,
+          0.8123165926854121
+        ],
+        "h_edges": {
+          "0-1": 0.00015791237018259534,
+          "0-2": 0.05870874539662591,
+          "0-3": 0.16177671412202513,
+          "1-3": 0.0009402113522581049,
+          "1-4": 0.10829268825808615,
+          "2-3": 2.8099779110797285e-07
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": false,
+          "lambda2_ge_eta": false,
+          "cutoff_margin_ge_0.02": false
+        }
+      },
+      "construction_rule_failures": [
+        "lambda2_ge_eta"
+      ],
+      "construction_ok": false,
+      "initial_connectivity_ok": false
+    },
+    {
+      "id": "B03",
+      "group": "B",
+      "pilot": false,
+      "objective": "B01 with a barely feasible Level 1 (u_max calibrated)",
+      "horizon_s": 0.1,
+      "init": "zero",
+      "pairs": [
+        [
+          "B01",
+          "single-parameter"
+        ]
+      ],
+      "exempt": [],
+      "notes": "",
+      "source": "P0",
+      "legacy": false,
+      "num_agents": 3,
+      "num_obstacles": 1,
+      "steps": 100,
+      "dt": 0.001,
+      "config": "configs/B03.yaml",
+      "config_sha256": "d0cdfbf7ea99fecce3a3af77902558f10458bdfd43d94b0f5e005a0128757b46",
+      "changed_from_base": {
+        "simulation.steps": 100,
+        "agents.num_agents": 3,
+        "agents.initial_positions": [
+          [
+            -0.55,
+            1.35
+          ],
+          [
+            0.0,
+            1.25
+          ],
+          [
+            0.55,
+            1.35
+          ]
+        ],
+        "obstacles.obstacles": [
+          {
+            "center": [
+              -0.3587972806750459,
+              1.2913355292980255
+            ],
+            "radius": 0.15
+          }
+        ],
+        "controller.u_max": 0.2111292325147806,
+        "controller.clf_rate": 2.0,
+        "controller.clf_coupling": "gated",
+        "fast_dynamics.substeps": 10
+      },
+      "calibration": {
+        "rule": "u_max such that the Level-1 LP margin is -5e-4"
+      },
+      "calibration_result": {
+        "ok": true,
+        "u_max": 0.2111292325147806,
+        "lp_margin": -0.0005000000394615732,
+        "verdict": "F",
+        "witness_slack": -0.0005000000394615731
+      },
+      "physical_validity": {
+        "min_pair_distance": 0.5590169943749475,
+        "min_obstacle_clearance": 0.05000000000000007,
+        "lambda2": 0.19902029552049663,
+        "lambda2_minus_eta": 0.09902029552049663,
+        "cutoff_margin": 0.2409830056250526,
+        "q": [
+          0.5606250000000002,
+          -0.109375,
+          0.5606250000000002
+        ],
+        "sigma": [
+          0.16801138687566494,
+          0.0,
+          0.16801138687566494
+        ],
+        "h_edges": {
+          "0-1": 0.05325319500330079,
+          "1-2": 0.05325319500330079
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": true,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true
+    },
+    {
+      "id": "B05",
+      "group": "B",
+      "pilot": false,
+      "objective": "blocked component of size 2 with two inside separators",
+      "horizon_s": 0.1,
+      "init": "zero",
+      "pairs": [
+        [
+          "B06",
+          "contrast"
+        ]
+      ],
+      "exempt": [],
+      "notes": "",
+      "source": "P0",
+      "legacy": false,
+      "num_agents": 5,
+      "num_obstacles": 2,
+      "steps": 100,
+      "dt": 0.001,
+      "config": "configs/B05.yaml",
+      "config_sha256": "2957a0b7fb053becb229e11ed56b23740594c63d979093611e0b1da6fa84904f",
+      "changed_from_base": {
+        "simulation.steps": 100,
+        "agents.initial_positions": [
+          [
+            -0.55,
+            1.35
+          ],
+          [
+            -0.95,
+            1.05
+          ],
+          [
+            -0.1,
+            1.2
+          ],
+          [
+            0.28,
+            0.93
+          ],
+          [
+            0.72,
+            1.12
+          ]
+        ],
+        "obstacles.obstacles": [
+          {
+            "center": [
+              -0.3587972806750459,
+              1.2913355292980255
+            ],
+            "radius": 0.15
+          },
+          {
+            "center": [
+              -0.7518818626490249,
+              1.0226284152344047
+            ],
+            "radius": 0.15
+          }
+        ],
+        "controller.clf_rate": 2.0,
+        "controller.clf_coupling": "gated",
+        "fast_dynamics.substeps": 10
+      },
+      "calibration": null,
+      "calibration_result": null,
+      "physical_validity": {
+        "min_pair_distance": 0.4661544808322665,
+        "min_obstacle_clearance": 0.04999999999999996,
+        "lambda2": 0.12787766534075098,
+        "lambda2_minus_eta": 0.02787766534075098,
+        "cutoff_margin": 0.023893196961839114,
+        "q": [
+          0.5606250000000002,
+          1.580625,
+          -0.12,
+          -0.12697499999999995,
+          0.8504
+        ],
+        "sigma": [
+          0.16801138687566494,
+          0.5311763886519076,
+          0.0,
+          0.0,
+          0.30853585601792843
+        ],
+        "h_edges": {
+          "0-1": 0.08208499862389883,
+          "0-2": 0.09543575655007948,
+          "1-2": 1.6584531746340755e-12,
+          "2-3": 0.09976200186806877,
+          "2-4": 1.966156659770036e-06,
+          "3-4": 0.09284509558082703
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": true,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true
+    },
+    {
+      "id": "B06",
+      "group": "B",
+      "pilot": false,
+      "objective": "N = 8: blocked cluster of 3 and free cluster of 3 joined by 2 inside agents",
+      "horizon_s": 0.1,
+      "init": "zero",
+      "pairs": [
+        [
+          "B05",
+          "contrast"
+        ]
+      ],
+      "exempt": [],
+      "notes": "finalized geometry v1a; eta = 0.05 fallback (lambda2 = 0.097 < 0.11 required at eta = 0.1)",
+      "source": "P0",
+      "legacy": false,
+      "num_agents": 8,
+      "num_obstacles": 3,
+      "steps": 100,
+      "dt": 0.001,
+      "config": "configs/B06.yaml",
+      "config_sha256": "027ea461400f76f37d2da77fd1d0e921f48a4ddc35abe66bdf73c66d12898901",
+      "changed_from_base": {
+        "simulation.steps": 100,
+        "agents.num_agents": 8,
+        "agents.initial_positions": [
+          [
+            -0.5,
+            1.3
+          ],
+          [
+            -0.85,
+            1.05
+          ],
+          [
+            -0.85,
+            1.55
+          ],
+          [
+            -0.1,
+            1.12
+          ],
+          [
+            0.2,
+            0.84
+          ],
+          [
+            0.55,
+            1.0
+          ],
+          [
+            0.95,
+            0.85
+          ],
+          [
+            0.85,
+            1.35
+          ]
+        ],
+        "obstacles.obstacles": [
+          {
+            "center": [
+              -0.30979318625381036,
+              1.2381827855324885
+            ],
+            "radius": 0.15
+          },
+          {
+            "center": [
+              -0.6523424925352732,
+              1.0194793554650055
+            ],
+            "radius": 0.15
+          },
+          {
+            "center": [
+              -0.6550016374111178,
+              1.505551843821652
+            ],
+            "radius": 0.15
+          }
+        ],
+        "controller.clf_rate": 2.0,
+        "controller.clf_coupling": "gated",
+        "fast_dynamics.eta": 0.05,
+        "fast_dynamics.substeps": 10
+      },
+      "calibration": null,
+      "calibration_result": null,
+      "physical_validity": {
+        "min_pair_distance": 0.3848376280978772,
+        "min_obstacle_clearance": 0.04999999999999993,
+        "lambda2": 0.0965663132914712,
+        "lambda2_minus_eta": 0.04656631329147119,
+        "cutoff_margin": 0.02619610262939387,
+        "q": [
+          0.4225000000000001,
+          1.2206249999999998,
+          1.5456249999999998,
+          -0.16639999999999988,
+          -0.24360000000000004,
+          0.3550000000000001,
+          1.485625,
+          1.4006249999999998
+        ],
+        "sigma": [
+          0.0937743508625086,
+          0.4407610301485183,
+          0.5236208293943099,
+          0.0,
+          0.0,
+          0.05979092362144698,
+          0.5101158741565347,
+          0.4896977186137964
+        ],
+        "h_edges": {
+          "0-1": 0.11905305780112023,
+          "0-2": 0.11905305780112023,
+          "0-3": 0.11446596756596754,
+          "0-4": 1.0924587142290212e-07,
+          "1-2": 0.0820849986238988,
+          "1-3": 0.0010974619491076032,
+          "2-3": 5.73356786077525e-13,
+          "3-4": 0.1297247293365175,
+          "3-5": 0.015240143095749439,
+          "4-5": 0.14354085773578107,
+          "4-6": 0.0012688671108763664,
+          "4-7": 1.3048532731945188e-06,
+          "5-6": 0.12062604460919893,
+          "5-7": 0.1025108997478554,
+          "6-7": 0.0770378751206342
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": true,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true
+    },
+    {
+      "id": "B08",
+      "group": "B",
+      "pilot": false,
+      "objective": "B07 in communication mode",
+      "horizon_s": 3.0,
+      "init": "zero",
+      "pairs": [
+        [
+          "B07",
+          "single-parameter"
+        ]
+      ],
+      "exempt": [],
+      "notes": "",
+      "source": "P0",
+      "legacy": false,
+      "num_agents": 3,
+      "num_obstacles": 1,
+      "steps": 3000,
+      "dt": 0.001,
+      "config": "configs/B08.yaml",
+      "config_sha256": "ce819a87e72a81889ea795e82e981c07c9edde609b49aacdff3a51b2cb90085e",
+      "changed_from_base": {
+        "simulation.steps": 3000,
+        "agents.num_agents": 3,
+        "agents.initial_positions": [
+          [
+            -0.5,
+            1.45
+          ],
+          [
+            0.0,
+            1.673
+          ],
+          [
+            0.5,
+            1.45
+          ]
+        ],
+        "obstacles.obstacles": [
+          {
+            "center": [
+              -0.0769387706768827,
+              1.2966403043703698
+            ],
+            "radius": 0.15
+          }
+        ],
+        "controller.clf_rate": 2.0,
+        "controller.clf_coupling": "communication",
+        "fast_dynamics.substeps": 10
+      },
+      "calibration": null,
+      "calibration_result": null,
+      "physical_validity": {
+        "min_pair_distance": 0.5474751135896498,
+        "min_obstacle_clearance": 0.23414345618231983,
+        "lambda2": 0.2164496813168066,
+        "lambda2_minus_eta": 0.11644968131680661,
+        "cutoff_margin": 0.2525248864103502,
+        "q": [
+          0.525625,
+          0.19973225000000006,
+          0.525625
+        ],
+        "sigma": [
+          0.14919560819316025,
+          0.006692935423522507,
+          0.14919560819316025
+        ],
+        "h_edges": {
+          "0-1": 0.058620010545903135,
+          "1-2": 0.058620010545903135
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": true,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true
+    },
+    {
+      "id": "B09",
+      "group": "B",
+      "pilot": false,
+      "objective": "connectivity part of Prop 2 (control case near the connectivity boundary)",
+      "horizon_s": 0.5,
+      "init": "zero",
+      "pairs": [
+        [
+          "C11",
+          "contrast"
+        ]
+      ],
+      "exempt": [
+        "lambda2_ge_eta_plus_0.01"
+      ],
+      "notes": "designated connectivity-boundary case",
+      "source": "P0",
+      "legacy": false,
+      "num_agents": 4,
+      "num_obstacles": 1,
+      "steps": 500,
+      "dt": 0.001,
+      "config": "configs/B09.yaml",
+      "config_sha256": "acf33673aa128913dbf781ba50f0a63c898884cd6c98028aa7cfa83fc12a711d",
+      "changed_from_base": {
+        "simulation.steps": 500,
+        "agents.num_agents": 4,
+        "agents.initial_positions": [
+          [
+            -1.3,
+            -0.864
+          ],
+          [
+            -1.3,
+            -0.288
+          ],
+          [
+            -1.3,
+            0.288
+          ],
+          [
+            -1.3,
+            0.864
+          ]
+        ],
+        "obstacles.obstacles": [
+          {
+            "center": [
+              -0.8,
+              0.55
+            ],
+            "radius": 0.2
+          }
+        ],
+        "controller.clf_rate": 0.1,
+        "controller.clf_coupling": "gated",
+        "fast_dynamics.substeps": 10
+      },
+      "calibration": null,
+      "calibration_result": null,
+      "physical_validity": {
+        "min_pair_distance": 0.576,
+        "min_obstacle_clearance": 0.36448560654812096,
+        "lambda2": 0.10216815809799264,
+        "lambda2_minus_eta": 0.0021681580979926313,
+        "cutoff_margin": 0.22399999999999998,
+        "q": [
+          3.0666240000000005,
+          2.900736,
+          2.900736,
+          3.0666240000000005
+        ],
+        "sigma": [
+          0.7217391500081942,
+          0.708404448429326,
+          0.708404448429326,
+          0.7217391500081942
+        ],
+        "h_edges": {
+          "0-1": 0.045665154610630226,
+          "1-2": 0.04566515461063027,
+          "2-3": 0.045665154610630226
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": false,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true
+    },
+    {
+      "id": "B10",
+      "group": "B",
+      "pilot": false,
+      "objective": "random inside/outside family FB (replicate)",
+      "horizon_s": 0.1,
+      "init": "zero",
+      "pairs": [
+        [
+          "B11",
+          "replicate"
+        ]
+      ],
+      "exempt": [],
+      "notes": "",
+      "source": "P0",
+      "legacy": false,
+      "num_agents": 5,
+      "num_obstacles": 1,
+      "steps": 100,
+      "dt": 0.001,
+      "config": "configs/B10.yaml",
+      "config_sha256": "82f2b112881eb139cd0305b32cf9427c2d342a3bb9fbf2501596793c5be70445",
+      "changed_from_base": {
+        "simulation.steps": 100,
+        "agents.initial_positions": [
+          [
+            -0.040555158951881554,
+            1.20453620007862
+          ],
+          [
+            -0.30044300733398727,
+            0.8427457156553572
+          ],
+          [
+            0.18405858271348424,
+            0.9600089882953239
+          ],
+          [
+            0.29505481318737337,
+            1.675672117280791
+          ],
+          [
+            0.5687828061814099,
+            1.4051314594407165
+          ]
+        ],
+        "obstacles.obstacles": [
+          {
+            "center": [
+              0.37768672361296285,
+              1.34612055174567
+            ],
+            "radius": 0.15
+          }
+        ],
+        "controller.clf_rate": 2.0,
+        "controller.clf_coupling": "gated",
+        "fast_dynamics.substeps": 10
+      },
+      "calibration": {
+        "family": "FB",
+        "seed": 201,
+        "rejections": 20
+      },
+      "calibration_result": null,
+      "physical_validity": {
+        "min_pair_distance": 0.3320314597254733,
+        "min_obstacle_clearance": 0.05000000000000002,
+        "lambda2": 0.33217006034682767,
+        "lambda2_minus_eta": 0.23217006034682766,
+        "cutoff_margin": 0.07578050470269593,
+        "q": [
+          -0.1339836938398149,
+          -0.1419129133743543,
+          -0.20184056185705412,
+          0.3760839467281437,
+          0.640626365792698
+        ],
+        "sigma": [
+          0.0,
+          0.0,
+          0.0,
+          0.07001954811157994,
+          0.20993185901279354
+        ],
+        "h_edges": {
+          "0-1": 0.11080057220545463,
+          "0-2": 0.17193119732884282,
+          "0-3": 0.04460428240366442,
+          "0-4": 0.02088808222538124,
+          "1-2": 0.08286030607925247,
+          "2-3": 0.0033832685525062166,
+          "2-4": 0.04041116516145089,
+          "3-4": 0.14352732265965376
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": true,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true
+    },
+    {
+      "id": "B11",
+      "group": "B",
+      "pilot": false,
+      "objective": "random inside/outside family FB (replicate)",
+      "horizon_s": 0.1,
+      "init": "zero",
+      "pairs": [
+        [
+          "B10",
+          "replicate"
+        ]
+      ],
+      "exempt": [],
+      "notes": "",
+      "source": "P0",
+      "legacy": false,
+      "num_agents": 5,
+      "num_obstacles": 1,
+      "steps": 100,
+      "dt": 0.001,
+      "config": "configs/B11.yaml",
+      "config_sha256": "08adf9caaf2dddca2d4730e2acda729dd5ede722626442fb592ce5cd6d828cbc",
+      "changed_from_base": {
+        "simulation.steps": 100,
+        "agents.initial_positions": [
+          [
+            -0.0376040553527893,
+            1.2335042526507842
+          ],
+          [
+            0.24854669950930505,
+            0.9206012425818205
+          ],
+          [
+            0.2605065974435932,
+            1.603335526123536
+          ],
+          [
+            0.6015936583714535,
+            1.1116113673249695
+          ],
+          [
+            -0.37505585734682356,
+            1.7064395604127376
+          ]
+        ],
+        "obstacles.obstacles": [
+          {
+            "center": [
+              0.4067240895736244,
+              1.0666019110235636
+            ],
+            "radius": 0.15
+          }
+        ],
+        "controller.clf_rate": 2.0,
+        "controller.clf_coupling": "gated",
+        "fast_dynamics.substeps": 10
+      },
+      "calibration": {
+        "family": "FB",
+        "seed": 202,
+        "rejections": 5
+      },
+      "calibration_result": null,
+      "physical_validity": {
+        "min_pair_distance": 0.40140630652271125,
+        "min_obstacle_clearance": 0.05000000000000007,
+        "lambda2": 0.27705635097129133,
+        "lambda2_minus_eta": 0.17705635097129133,
+        "cutoff_margin": 0.1171609698605256,
+        "q": [
+          -0.11678868471515624,
+          -0.16457241436526449,
+          0.27839857695573567,
+          0.5327498175770202,
+          0.509317785595726
+        ],
+        "sigma": [
+          0.0,
+          0.0,
+          0.027543949582301983,
+          0.1530403495997581,
+          0.14037881069527536
+        ],
+        "h_edges": {
+          "0-1": 0.12234430273379658,
+          "0-2": 0.0950779208415024,
+          "0-3": 0.018106353735075176,
+          "0-4": 0.043515784814276544,
+          "1-2": 0.01000291181082658,
+          "1-3": 0.1345739936834671,
+          "2-3": 0.03629361184412619,
+          "2-4": 0.020155358257391277
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": true,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true
+    },
+    {
+      "id": "B12",
+      "group": "B",
+      "pilot": false,
+      "objective": "exact v-edge at floating-point resolution (h ~ 1e-22)",
+      "horizon_s": 0.1,
+      "init": "zero",
+      "pairs": [
+        [
+          "B01",
+          "contrast"
+        ]
+      ],
+      "exempt": [],
+      "notes": "designated cutoff case: O1-O2 at d_c - 0.02",
+      "source": "P0",
+      "legacy": false,
+      "num_agents": 3,
+      "num_obstacles": 1,
+      "steps": 100,
+      "dt": 0.001,
+      "config": "configs/B12.yaml",
+      "config_sha256": "fb9d6d6db19a930b059981446639cf23e8c89a4c3d194454cab651752439b0d6",
+      "changed_from_base": {
+        "simulation.steps": 100,
+        "agents.num_agents": 3,
+        "agents.initial_positions": [
+          [
+            -0.44,
+            1.35
+          ],
+          [
+            0.0,
+            1.25
+          ],
+          [
+            0.44,
+            1.35
+          ]
+        ],
+        "obstacles.obstacles": [
+          {
+            "center": [
+              -0.25326259946949603,
+              1.2783819628647215
+            ],
+            "radius": 0.15
+          }
+        ],
+        "controller.clf_rate": 3.0,
+        "controller.clf_coupling": "gated",
+        "fast_dynamics.substeps": 10
+      },
+      "calibration": null,
+      "calibration_result": null,
+      "physical_validity": {
+        "min_pair_distance": 0.45122056690713913,
+        "min_obstacle_clearance": 0.05000000000000002,
+        "lambda2": 0.3802728795792379,
+        "lambda2_minus_eta": 0.28027287957923785,
+        "cutoff_margin": 0.020000000000000018,
+        "q": [
+          0.34282500000000005,
+          -0.109375,
+          0.34282500000000005
+        ],
+        "sigma": [
+          0.05409897012573205,
+          0.0,
+          0.05409897012573205
+        ],
+        "h_edges": {
+          "0-1": 0.10771503472457897,
+          "0-2": 1.928749847964e-22,
+          "1-2": 0.10771503472457897
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": true,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true
+    },
+    {
+      "id": "C01",
+      "group": "C",
+      "pilot": false,
+      "objective": "calibration: Experiment A in communication mode; zero-row verdict test",
+      "horizon_s": 2.0,
+      "init": "zero",
+      "pairs": [
+        [
+          "D01",
+          "single-parameter"
+        ]
+      ],
+      "exempt": [],
+      "notes": "",
+      "source": "P0",
+      "legacy": false,
+      "num_agents": 4,
+      "num_obstacles": 1,
+      "steps": 2000,
+      "dt": 0.001,
+      "config": "configs/C01.yaml",
+      "config_sha256": "88be1f9b4462ffa9ad7cbe21cbce0d8a8ac18506bfa33e053b6f174eecbe88ae",
+      "changed_from_base": {
+        "simulation.steps": 2000,
+        "agents.num_agents": 4,
+        "agents.initial_positions": [
+          [
+            -0.75,
+            0.0
+          ],
+          [
+            -0.25,
+            0.0
+          ],
+          [
+            0.25,
+            0.05
+          ],
+          [
+            0.8,
+            0.1
+          ]
+        ],
+        "obstacles.obstacles": [
+          {
+            "center": [
+              -5.0,
+              1.0
+            ],
+            "radius": 0.6
+          }
+        ],
+        "controller.clf_coupling": "communication",
+        "fast_dynamics.substeps": 10
+      },
+      "calibration": null,
+      "calibration_result": null,
+      "physical_validity": {
+        "min_pair_distance": 0.5,
+        "min_obstacle_clearance": 3.7660622991432446,
+        "lambda2": 0.15381953212181013,
+        "lambda2_minus_eta": 0.05381953212181012,
+        "cutoff_margin": 0.247731949140637,
+        "q": [
+          0.625,
+          -0.375,
+          -0.374375,
+          0.7825000000000002
+        ],
+        "sigma": [
+          0.20189651799465538,
+          0.0,
+          0.0,
+          0.2786063928487081
+        ],
+        "h_edges": {
+          "0-1": 0.0820849986238988,
+          "1-2": 0.08080762798079222,
+          "2-3": 0.05637224686026386
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": true,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true
+    },
+    {
+      "id": "C04",
+      "group": "C",
+      "pilot": false,
+      "objective": "insufficient warm start (stop at E ~ E_adm)",
+      "horizon_s": 0.3,
+      "init": {
+        "type": "E_rel",
+        "factor": 1.0
+      },
+      "pairs": [
+        [
+          "C03",
+          "design-factor"
+        ],
+        [
+          "D03",
+          "design-factor"
+        ]
+      ],
+      "exempt": [],
+      "notes": "",
+      "source": "P0",
+      "legacy": false,
+      "num_agents": 2,
+      "num_obstacles": 1,
+      "steps": 300,
+      "dt": 0.001,
+      "config": "configs/C04.yaml",
+      "config_sha256": "d06b18167f1ecb398324ae9fc40438a4c9efc5e766f83bd02d3b62e552c2adfb",
+      "changed_from_base": {
+        "simulation.steps": 300,
+        "agents.num_agents": 2,
+        "agents.initial_positions": [
+          [
+            0.054,
+            -3.868
+          ],
+          [
+            -0.14,
+            -3.514
+          ]
+        ],
+        "obstacles.obstacles": [
+          {
+            "center": [
+              0.78,
+              -3.503
+            ],
+            "radius": 0.6
+          }
+        ],
+        "controller.clf_rate": 0.25,
+        "controller.clf_coupling": "gated",
+        "fast_dynamics.substeps": 10
+      },
+      "calibration": null,
+      "calibration_result": null,
+      "physical_validity": {
+        "min_pair_distance": 0.40367313509818814,
+        "min_obstacle_clearance": 0.21258907204072086,
+        "lambda2": 0.9395646859489712,
+        "lambda2_minus_eta": 0.8395646859489713,
+        "cutoff_margin": 0.3963268649018119,
+        "q": [
+          3.2461879999999996,
+          2.6262489999999996
+        ],
+        "sigma": [
+          0.7348759048924098,
+          0.683334214240633
+        ],
+        "h_edges": {
+          "0-1": 0.1333469001551573
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": true,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true,
+      "warm_start": {
+        "file": "warm/C04_warm.pkl",
+        "stop_step": 338,
+        "frozen_time_s": 0.338,
+        "e": 0.055584778882144234,
+        "E": 0.05621716742284869,
+        "E_stop": 0.056301568041619246,
+        "E_adm_x0": 0.056301568041619246,
+        "rule": {
+          "type": "E_rel",
+          "factor": 1.0
+        },
+        "inactive_duals_zero": true
+      }
+    },
+    {
+      "id": "C05",
+      "group": "C",
+      "pilot": false,
+      "objective": "time-scale separation at fixed r (tau 0.005, M 40)",
+      "horizon_s": 5.0,
+      "init": "zero",
+      "pairs": [
+        [
+          "C02",
+          "design-factor"
+        ]
+      ],
+      "exempt": [],
+      "notes": "",
+      "source": "P0",
+      "legacy": false,
+      "num_agents": 3,
+      "num_obstacles": 1,
+      "steps": 5000,
+      "dt": 0.001,
+      "config": "configs/C05.yaml",
+      "config_sha256": "178089f251581528db80fecb54504a7fecf60afe6e82f8ce2d1c9674ac17d8f7",
+      "changed_from_base": {
+        "simulation.steps": 5000,
+        "agents.num_agents": 3,
+        "agents.initial_positions": [
+          [
+            -0.56,
+            0.0
+          ],
+          [
+            -1.0,
+            0.0
+          ],
+          [
+            -0.75,
+            0.5
+          ]
+        ],
+        "obstacles.obstacles": [
+          {
+            "center": [
+              -5.0,
+              1.0
+            ],
+            "radius": 0.6
+          }
+        ],
+        "controller.clf_rate": 0.5,
+        "controller.clf_coupling": "gated",
+        "fast_dynamics.tau": 0.005,
+        "fast_dynamics.substeps": 40
+      },
+      "calibration": null,
+      "calibration_result": null,
+      "physical_validity": {
+        "min_pair_distance": 0.43999999999999995,
+        "min_obstacle_clearance": 3.5231056256176605,
+        "lambda2": 0.6498675021137604,
+        "lambda2_minus_eta": 0.5498675021137605,
+        "cutoff_margin": 0.2409830056250526,
+        "q": [
+          0.1272000000000001,
+          1.5,
+          0.6875
+        ],
+        "sigma": [
+          0.00038524339827320794,
+          0.513417119032592,
+          0.23350647909091338
+        ],
+        "h_edges": {
+          "0-1": 0.11373170793120889,
+          "0-2": 0.0646446887156581,
+          "1-2": 0.05325319500330079
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": true,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true
+    },
+    {
+      "id": "C06",
+      "group": "C",
+      "pilot": false,
+      "objective": "regularization xi = 0.2",
+      "horizon_s": 5.0,
+      "init": "zero",
+      "pairs": [
+        [
+          "C02",
+          "single-parameter"
+        ]
+      ],
+      "exempt": [],
+      "notes": "",
+      "source": "P0",
+      "legacy": false,
+      "num_agents": 3,
+      "num_obstacles": 1,
+      "steps": 5000,
+      "dt": 0.001,
+      "config": "configs/C06.yaml",
+      "config_sha256": "c7e892f8a276ae38e5d648ea279f8cfb0ea58b31db64535b9b4e9900ee46fc65",
+      "changed_from_base": {
+        "simulation.steps": 5000,
+        "agents.num_agents": 3,
+        "agents.initial_positions": [
+          [
+            -0.56,
+            0.0
+          ],
+          [
+            -1.0,
+            0.0
+          ],
+          [
+            -0.75,
+            0.5
+          ]
+        ],
+        "obstacles.obstacles": [
+          {
+            "center": [
+              -5.0,
+              1.0
+            ],
+            "radius": 0.6
+          }
+        ],
+        "controller.clf_rate": 0.5,
+        "controller.clf_coupling": "gated",
+        "fast_dynamics.xi": 0.2,
+        "fast_dynamics.substeps": 10
+      },
+      "calibration": null,
+      "calibration_result": null,
+      "physical_validity": {
+        "min_pair_distance": 0.43999999999999995,
+        "min_obstacle_clearance": 3.5231056256176605,
+        "lambda2": 0.6498675021137604,
+        "lambda2_minus_eta": 0.5498675021137605,
+        "cutoff_margin": 0.2409830056250526,
+        "q": [
+          0.1272000000000001,
+          1.5,
+          0.6875
+        ],
+        "sigma": [
+          0.00038524339827320794,
+          0.513417119032592,
+          0.23350647909091338
+        ],
+        "h_edges": {
+          "0-1": 0.11373170793120889,
+          "0-2": 0.0646446887156581,
+          "1-2": 0.05325319500330079
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": true,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true
+    },
+    {
+      "id": "C07",
+      "group": "C",
+      "pilot": false,
+      "objective": "Method B with M = 1 (r = 0.05)",
+      "horizon_s": 5.0,
+      "init": "zero",
+      "pairs": [
+        [
+          "C02",
+          "single-parameter"
+        ]
+      ],
+      "exempt": [],
+      "notes": "",
+      "source": "P0",
+      "legacy": false,
+      "num_agents": 3,
+      "num_obstacles": 1,
+      "steps": 5000,
+      "dt": 0.001,
+      "config": "configs/C07.yaml",
+      "config_sha256": "2b828e3c0651669ef3a1316789d9a7279384edbde23fbe077fbbe324e0a59faa",
+      "changed_from_base": {
+        "simulation.steps": 5000,
+        "agents.num_agents": 3,
+        "agents.initial_positions": [
+          [
+            -0.56,
+            0.0
+          ],
+          [
+            -1.0,
+            0.0
+          ],
+          [
+            -0.75,
+            0.5
+          ]
+        ],
+        "obstacles.obstacles": [
+          {
+            "center": [
+              -5.0,
+              1.0
+            ],
+            "radius": 0.6
+          }
+        ],
+        "controller.clf_rate": 0.5,
+        "controller.clf_coupling": "gated",
+        "fast_dynamics.substeps": 1
+      },
+      "calibration": null,
+      "calibration_result": null,
+      "physical_validity": {
+        "min_pair_distance": 0.43999999999999995,
+        "min_obstacle_clearance": 3.5231056256176605,
+        "lambda2": 0.6498675021137604,
+        "lambda2_minus_eta": 0.5498675021137605,
+        "cutoff_margin": 0.2409830056250526,
+        "q": [
+          0.1272000000000001,
+          1.5,
+          0.6875
+        ],
+        "sigma": [
+          0.00038524339827320794,
+          0.513417119032592,
+          0.23350647909091338
+        ],
+        "h_edges": {
+          "0-1": 0.11373170793120889,
+          "0-2": 0.0646446887156581,
+          "1-2": 0.05325319500330079
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": true,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true
+    },
+    {
+      "id": "C08",
+      "group": "C",
+      "pilot": false,
+      "objective": "calibration: Experiment B convoy in communication mode",
+      "horizon_s": 5.0,
+      "init": "zero",
+      "pairs": [
+        [
+          "C02",
+          "single-parameter"
+        ]
+      ],
+      "exempt": [],
+      "notes": "",
+      "source": "P0",
+      "legacy": false,
+      "num_agents": 3,
+      "num_obstacles": 1,
+      "steps": 5000,
+      "dt": 0.001,
+      "config": "configs/C08.yaml",
+      "config_sha256": "403576a84ad735deae07bc13837e441fea1306618a7ce679986225c6f6cf9d07",
+      "changed_from_base": {
+        "simulation.steps": 5000,
+        "agents.num_agents": 3,
+        "agents.initial_positions": [
+          [
+            -0.56,
+            0.0
+          ],
+          [
+            -1.0,
+            0.0
+          ],
+          [
+            -0.75,
+            0.5
+          ]
+        ],
+        "obstacles.obstacles": [
+          {
+            "center": [
+              -5.0,
+              1.0
+            ],
+            "radius": 0.6
+          }
+        ],
+        "controller.clf_rate": 0.5,
+        "controller.clf_coupling": "communication",
+        "fast_dynamics.substeps": 10
+      },
+      "calibration": null,
+      "calibration_result": null,
+      "physical_validity": {
+        "min_pair_distance": 0.43999999999999995,
+        "min_obstacle_clearance": 3.5231056256176605,
+        "lambda2": 0.6498675021137604,
+        "lambda2_minus_eta": 0.5498675021137605,
+        "cutoff_margin": 0.2409830056250526,
+        "q": [
+          0.1272000000000001,
+          1.5,
+          0.6875
+        ],
+        "sigma": [
+          0.00038524339827320794,
+          0.513417119032592,
+          0.23350647909091338
+        ],
+        "h_edges": {
+          "0-1": 0.11373170793120889,
+          "0-2": 0.0646446887156581,
+          "1-2": 0.05325319500330079
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": true,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true
+    },
+    {
+      "id": "C10",
+      "group": "C",
+      "pilot": false,
+      "objective": "dynamically active pairwise mismatch at a gap (d0 = 0.25)",
+      "horizon_s": 3.0,
+      "init": "zero",
+      "pairs": [
+        [
+          "A06",
+          "contrast"
+        ]
+      ],
+      "exempt": [],
+      "notes": "",
+      "source": "P0",
+      "legacy": false,
+      "num_agents": 5,
+      "num_obstacles": 2,
+      "steps": 3000,
+      "dt": 0.001,
+      "config": "configs/C10.yaml",
+      "config_sha256": "a0df06e489d929f606fdf4c1ba398f6f49aa9080f2e19edd315a82e6652789c1",
+      "changed_from_base": {
+        "simulation.steps": 3000,
+        "agents.initial_positions": [
+          [
+            -1.8,
+            -0.62
+          ],
+          [
+            -1.8,
+            -0.31
+          ],
+          [
+            -1.8,
+            0.0
+          ],
+          [
+            -1.8,
+            0.31
+          ],
+          [
+            -1.8,
+            0.62
+          ]
+        ],
+        "obstacles.obstacles": [
+          {
+            "center": [
+              -0.9,
+              0.5
+            ],
+            "radius": 0.3
+          },
+          {
+            "center": [
+              -0.9,
+              -0.5
+            ],
+            "radius": 0.3
+          }
+        ],
+        "controller.safety_distance": 0.25,
+        "controller.clf_rate": 0.25,
+        "controller.clf_coupling": "gated",
+        "fast_dynamics.substeps": 10
+      },
+      "calibration": null,
+      "calibration_result": null,
+      "physical_validity": {
+        "min_pair_distance": 0.31,
+        "min_obstacle_clearance": 0.6079647570252933,
+        "lambda2": 0.3955737663242979,
+        "lambda2_minus_eta": 0.2955737663242979,
+        "cutoff_margin": 0.029999999999999916,
+        "q": [
+          6.0761,
+          6.004025,
+          5.98,
+          6.004025,
+          6.0761
+        ],
+        "sigma": [
+          0.8482505277630329,
+          0.8465763080879366,
+          0.8460100159449584,
+          0.8465763080879366,
+          0.8482505277630329
+        ],
+        "h_edges": {
+          "0-1": 0.18361478894372435,
+          "0-2": 0.028115659748972045,
+          "1-2": 0.18361478894372435,
+          "1-3": 0.028115659748972045,
+          "2-3": 0.18361478894372435,
+          "2-4": 0.028115659748972045,
+          "3-4": 0.18361478894372435
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": true,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true
+    },
+    {
+      "id": "C12",
+      "group": "C",
+      "pilot": false,
+      "objective": "scale (N = 10) with a faster CLF",
+      "horizon_s": 2.0,
+      "init": "zero",
+      "pairs": [
+        [
+          "D08",
+          "contrast"
+        ]
+      ],
+      "exempt": [],
+      "notes": "",
+      "source": "P0",
+      "legacy": false,
+      "num_agents": 10,
+      "num_obstacles": 1,
+      "steps": 2000,
+      "dt": 0.001,
+      "config": "configs/C12.yaml",
+      "config_sha256": "a5d66e288777fa33b3ccf88be68749701befb5702b0e97dd6bfc5d22cc755b7f",
+      "changed_from_base": {
+        "simulation.steps": 2000,
+        "agents.num_agents": 10,
+        "agents.initial_positions": [
+          [
+            -1.3,
+            -0.62
+          ],
+          [
+            -1.3,
+            -0.31
+          ],
+          [
+            -1.3,
+            0.0
+          ],
+          [
+            -1.3,
+            0.31
+          ],
+          [
+            -1.3,
+            0.62
+          ],
+          [
+            -1.61,
+            -0.62
+          ],
+          [
+            -1.61,
+            -0.31
+          ],
+          [
+            -1.61,
+            0.0
+          ],
+          [
+            -1.61,
+            0.31
+          ],
+          [
+            -1.61,
+            0.62
+          ]
+        ],
+        "obstacles.obstacles": [
+          {
+            "center": [
+              -5.0,
+              1.0
+            ],
+            "radius": 0.6
+          }
+        ],
+        "controller.clf_rate": 0.25,
+        "controller.clf_coupling": "gated",
+        "fast_dynamics.substeps": 10
+      },
+      "calibration": null,
+      "calibration_result": null,
+      "physical_validity": {
+        "min_pair_distance": 0.31,
+        "min_obstacle_clearance": 2.8112314491983676,
+        "lambda2": 0.6057292634162608,
+        "lambda2_minus_eta": 0.5057292634162608,
+        "cutoff_margin": 0.029999999999999916,
+        "q": [
+          2.9761,
+          2.9040250000000003,
+          2.8800000000000003,
+          2.9040250000000003,
+          2.9761,
+          4.7803,
+          4.7082250000000005,
+          4.684200000000001,
+          4.7082250000000005,
+          4.7803
+        ],
+        "sigma": [
+          0.7146158061851773,
+          0.7086810925108684,
+          0.7066482778577163,
+          0.7086810925108684,
+          0.7146158061851773,
+          0.8112395505520145,
+          0.8086458119620586,
+          0.8077653865495028,
+          0.8086458119620586,
+          0.8112395505520145
+        ],
+        "h_edges": {
+          "0-1": 0.18361478894372435,
+          "0-2": 0.028115659748972045,
+          "0-5": 0.18361478894372427,
+          "0-6": 0.11458860243651393,
+          "0-7": 0.0079455169554916,
+          "1-2": 0.18361478894372435,
+          "1-3": 0.028115659748972045,
+          "1-5": 0.11458860243651393,
+          "1-6": 0.18361478894372427,
+          "1-7": 0.11458860243651393,
+          "1-8": 0.0079455169554916,
+          "2-3": 0.18361478894372435,
+          "2-4": 0.028115659748972045,
+          "2-5": 0.0079455169554916,
+          "2-6": 0.11458860243651393,
+          "2-7": 0.18361478894372427,
+          "2-8": 0.11458860243651393,
+          "2-9": 0.0079455169554916,
+          "3-4": 0.18361478894372435,
+          "3-6": 0.0079455169554916,
+          "3-7": 0.11458860243651393,
+          "3-8": 0.18361478894372427,
+          "3-9": 0.11458860243651393,
+          "4-7": 0.0079455169554916,
+          "4-8": 0.11458860243651393,
+          "4-9": 0.18361478894372427,
+          "5-6": 0.18361478894372435,
+          "5-7": 0.028115659748972045,
+          "6-7": 0.18361478894372435,
+          "6-8": 0.028115659748972045,
+          "7-8": 0.18361478894372435,
+          "7-9": 0.028115659748972045,
+          "8-9": 0.18361478894372435
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": true,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true
+    },
+    {
+      "id": "D01",
+      "group": "D",
+      "pilot": false,
+      "objective": "calibration: Experiment A gated (certified, mismatch inactive)",
+      "horizon_s": 2.0,
+      "init": "zero",
+      "pairs": [
+        [
+          "C01",
+          "single-parameter"
+        ]
+      ],
+      "exempt": [],
+      "notes": "",
+      "source": "P0",
+      "legacy": false,
+      "num_agents": 4,
+      "num_obstacles": 1,
+      "steps": 2000,
+      "dt": 0.001,
+      "config": "configs/D01.yaml",
+      "config_sha256": "3901b5c7bd8b9d3190a0b1ba035cc663a422cd52c84d2fbe4a7a8fb4219399bf",
+      "changed_from_base": {
+        "simulation.steps": 2000,
+        "agents.num_agents": 4,
+        "agents.initial_positions": [
+          [
+            -0.75,
+            0.0
+          ],
+          [
+            -0.25,
+            0.0
+          ],
+          [
+            0.25,
+            0.05
+          ],
+          [
+            0.8,
+            0.1
+          ]
+        ],
+        "obstacles.obstacles": [
+          {
+            "center": [
+              -5.0,
+              1.0
+            ],
+            "radius": 0.6
+          }
+        ],
+        "controller.clf_coupling": "gated",
+        "fast_dynamics.substeps": 10
+      },
+      "calibration": null,
+      "calibration_result": null,
+      "physical_validity": {
+        "min_pair_distance": 0.5,
+        "min_obstacle_clearance": 3.7660622991432446,
+        "lambda2": 0.15381953212181013,
+        "lambda2_minus_eta": 0.05381953212181012,
+        "cutoff_margin": 0.247731949140637,
+        "q": [
+          0.625,
+          -0.375,
+          -0.374375,
+          0.7825000000000002
+        ],
+        "sigma": [
+          0.20189651799465538,
+          0.0,
+          0.0,
+          0.2786063928487081
+        ],
+        "h_edges": {
+          "0-1": 0.0820849986238988,
+          "1-2": 0.08080762798079222,
+          "2-3": 0.05637224686026386
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": true,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true
+    },
+    {
+      "id": "D05",
+      "group": "D",
+      "pilot": false,
+      "objective": "baseline with d0 = 0.30 (replica of the earlier Method B run)",
+      "horizon_s": 10.0,
+      "init": "zero",
+      "pairs": [
+        [
+          "D04",
+          "single-parameter"
+        ]
+      ],
+      "exempt": [
+        "pair_ge_d0_plus_0.05"
+      ],
+      "notes": "calibration replica; initial pair margin 0.02 above d0 (safe)",
+      "source": "base",
+      "legacy": false,
+      "num_agents": 5,
+      "num_obstacles": 7,
+      "steps": 10000,
+      "dt": 0.001,
+      "config": "configs/D05.yaml",
+      "config_sha256": "74a320989c7fb1b478188d61fadba128415f99091984b78dc3543ff233ecd873",
+      "changed_from_base": {
+        "simulation.steps": 10000,
+        "controller.safety_distance": 0.3,
+        "controller.clf_coupling": "gated",
+        "fast_dynamics.substeps": 10
+      },
+      "calibration": null,
+      "calibration_result": null,
+      "physical_validity": {
+        "min_pair_distance": 0.32015621187164256,
+        "min_obstacle_clearance": 0.252310562561766,
+        "lambda2": 0.1280803153215143,
+        "lambda2_minus_eta": 0.028080315321514282,
+        "cutoff_margin": 0.043362702478922266,
+        "q": [
+          8.460625,
+          8.460625,
+          7.5,
+          6.7825,
+          6.7825
+        ],
+        "sigma": [
+          0.8885231488928916,
+          0.8885231488928916,
+          0.8751733190429475,
+          0.8629157128956911,
+          0.8629157128956911
+        ],
+        "h_edges": {
+          "0-2": 0.0009346719583409566,
+          "0-3": 0.17824390396871095,
+          "1-2": 0.0009346719583409566,
+          "1-4": 0.17824390396871095,
+          "2-3": 0.07703787512063427,
+          "2-4": 0.07703787512063427
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": false,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": true,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true
+    },
+    {
+      "id": "D06",
+      "group": "D",
+      "pilot": false,
+      "objective": "baseline with eta = 0.125 (replica of the earlier connectivity run)",
+      "horizon_s": 10.0,
+      "init": "zero",
+      "pairs": [
+        [
+          "D04",
+          "single-parameter"
+        ]
+      ],
+      "exempt": [
+        "lambda2_ge_eta_plus_0.01"
+      ],
+      "notes": "calibration replica; designated near-boundary connectivity",
+      "source": "base",
+      "legacy": false,
+      "num_agents": 5,
+      "num_obstacles": 7,
+      "steps": 10000,
+      "dt": 0.001,
+      "config": "configs/D06.yaml",
+      "config_sha256": "a6088d87f915a998f7ee872a3ad7379d2e4e3b0485788611ffd1e56896571287",
+      "changed_from_base": {
+        "simulation.steps": 10000,
+        "controller.clf_coupling": "gated",
+        "fast_dynamics.eta": 0.125,
+        "fast_dynamics.substeps": 10
+      },
+      "calibration": null,
+      "calibration_result": null,
+      "physical_validity": {
+        "min_pair_distance": 0.32015621187164256,
+        "min_obstacle_clearance": 0.252310562561766,
+        "lambda2": 0.1280803153215143,
+        "lambda2_minus_eta": 0.0030803153215142876,
+        "cutoff_margin": 0.043362702478922266,
+        "q": [
+          8.460625,
+          8.460625,
+          7.5,
+          6.7825,
+          6.7825
+        ],
+        "sigma": [
+          0.8885231488928916,
+          0.8885231488928916,
+          0.8751733190429475,
+          0.8629157128956911,
+          0.8629157128956911
+        ],
+        "h_edges": {
+          "0-2": 0.0009346719583409566,
+          "0-3": 0.17824390396871095,
+          "1-2": 0.0009346719583409566,
+          "1-4": 0.17824390396871095,
+          "2-3": 0.07703787512063427,
+          "2-4": 0.07703787512063427
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": false,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true
+    },
+    {
+      "id": "D07",
+      "group": "D",
+      "pilot": false,
+      "objective": "N = 8 nominal lattice",
+      "horizon_s": 2.0,
+      "init": "zero",
+      "pairs": [
+        [
+          "D08",
+          "contrast"
+        ]
+      ],
+      "exempt": [],
+      "notes": "",
+      "source": "P0",
+      "legacy": false,
+      "num_agents": 8,
+      "num_obstacles": 0,
+      "steps": 2000,
+      "dt": 0.001,
+      "config": "configs/D07.yaml",
+      "config_sha256": "8f61199ce3c8e2ab555416cc25d04f3032084f0923dca624091c3560b77c0bed",
+      "changed_from_base": {
+        "simulation.steps": 2000,
+        "agents.num_agents": 8,
+        "agents.initial_positions": [
+          [
+            -1.35,
+            -0.63
+          ],
+          [
+            -1.35,
+            -0.21
+          ],
+          [
+            -1.35,
+            0.21
+          ],
+          [
+            -1.35,
+            0.63
+          ],
+          [
+            -1.77,
+            -0.63
+          ],
+          [
+            -1.77,
+            -0.21
+          ],
+          [
+            -1.77,
+            0.21
+          ],
+          [
+            -1.77,
+            0.63
+          ]
+        ],
+        "obstacles.obstacles": [],
+        "controller.clf_coupling": "gated",
+        "fast_dynamics.substeps": 10
+      },
+      "calibration": null,
+      "calibration_result": null,
+      "physical_validity": {
+        "min_pair_distance": 0.41999999999999993,
+        "min_obstacle_clearance": Infinity,
+        "lambda2": 0.3447050923933368,
+        "lambda2_minus_eta": 0.2447050923933368,
+        "cutoff_margin": 0.03914855054991162,
+        "q": [
+          3.2442250000000006,
+          3.1560250000000005,
+          3.1560250000000005,
+          3.2442250000000006,
+          5.865025,
+          5.7768250000000005,
+          5.7768250000000005,
+          5.865025
+        ],
+        "sigma": [
+          0.7347389400196827,
+          0.7284369019184997,
+          0.7284369019184997,
+          0.7347389400196827,
+          0.8432411864111843,
+          0.8410489057188174,
+          0.8410489057188174,
+          0.8432411864111843
+        ],
+        "h_edges": {
+          "0-1": 0.12451447144412296,
+          "0-2": 5.777748519419215e-08,
+          "0-4": 0.12451447144412302,
+          "0-5": 0.038095837524301505,
+          "1-2": 0.12451447144412302,
+          "1-3": 5.777748519419215e-08,
+          "1-4": 0.038095837524301505,
+          "1-5": 0.12451447144412302,
+          "1-6": 0.03809583752430154,
+          "2-3": 0.12451447144412296,
+          "2-5": 0.03809583752430154,
+          "2-6": 0.12451447144412302,
+          "2-7": 0.038095837524301505,
+          "3-6": 0.038095837524301505,
+          "3-7": 0.12451447144412302,
+          "4-5": 0.12451447144412296,
+          "4-6": 5.777748519419215e-08,
+          "5-6": 0.12451447144412302,
+          "5-7": 5.777748519419215e-08,
+          "6-7": 0.12451447144412296
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": true,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true
+    },
+    {
+      "id": "D09",
+      "group": "D",
+      "pilot": false,
+      "objective": "random open-space family FD (replicate)",
+      "horizon_s": 2.0,
+      "init": "zero",
+      "pairs": [
+        [
+          "D10",
+          "replicate"
+        ]
+      ],
+      "exempt": [],
+      "notes": "",
+      "source": "P0",
+      "legacy": false,
+      "num_agents": 5,
+      "num_obstacles": 1,
+      "steps": 2000,
+      "dt": 0.001,
+      "config": "configs/D09.yaml",
+      "config_sha256": "a1d29b4bbb2a265996bbdaa6bad29e4fd414d4987c49958884a10cbcd7020b32",
+      "changed_from_base": {
+        "simulation.steps": 2000,
+        "agents.initial_positions": [
+          [
+            -1.9775752790301846,
+            -0.4344413970405928
+          ],
+          [
+            -1.9457292868030427,
+            -0.004284591194623655
+          ],
+          [
+            -1.5932068061587465,
+            0.1496109304140003
+          ],
+          [
+            -2.229186040795932,
+            0.05723713038877698
+          ],
+          [
+            -1.3174908405730195,
+            -0.23545838676225495
+          ]
+        ],
+        "obstacles.obstacles": [
+          {
+            "center": [
+              -5.0,
+              1.0
+            ],
+            "radius": 0.6
+          }
+        ],
+        "controller.clf_coupling": "gated",
+        "fast_dynamics.substeps": 10
+      },
+      "calibration": {
+        "family": "FD",
+        "seed": 401,
+        "rejections": 15
+      },
+      "calibration_result": null,
+      "physical_validity": {
+        "min_pair_distance": 0.29005629386512327,
+        "min_obstacle_clearance": 2.3268091541536684,
+        "lambda2": 0.4086866259819118,
+        "lambda2_minus_eta": 0.30868662598191177,
+        "cutoff_margin": 0.10081744576781049,
+        "q": [
+          7.36879280032827,
+          7.07172950447658,
+          4.582211712005943,
+          9.43935983123267,
+          2.9854243929617734
+        ],
+        "sigma": [
+          0.8730980294952414,
+          0.8681349330130022,
+          0.8039363142002951,
+          0.8994791660010351,
+          0.7153661624221962
+        ],
+        "h_edges": {
+          "0-1": 0.11839653423739077,
+          "0-2": 0.006876489234242224,
+          "0-3": 0.05634871848821159,
+          "0-4": 0.008661361131447002,
+          "1-2": 0.14364212089858425,
+          "1-3": 0.19407791764972765,
+          "1-4": 0.013076822058863357,
+          "2-3": 0.02053140497244839,
+          "2-4": 0.09582612781166479
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": true,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true
+    },
+    {
+      "id": "D10",
+      "group": "D",
+      "pilot": false,
+      "objective": "random open-space family FD (replicate)",
+      "horizon_s": 2.0,
+      "init": "zero",
+      "pairs": [
+        [
+          "D09",
+          "replicate"
+        ]
+      ],
+      "exempt": [],
+      "notes": "",
+      "source": "P0",
+      "legacy": false,
+      "num_agents": 5,
+      "num_obstacles": 1,
+      "steps": 2000,
+      "dt": 0.001,
+      "config": "configs/D10.yaml",
+      "config_sha256": "a3ba3979e3c4b64ed80cbe89d64199eff009319478044516248e319c6ca893b5",
+      "changed_from_base": {
+        "simulation.steps": 2000,
+        "agents.initial_positions": [
+          [
+            -1.6664712929792955,
+            0.03788985814877177
+          ],
+          [
+            -1.7421351715283673,
+            0.376944540832984
+          ],
+          [
+            -1.3036576660909756,
+            0.47047846854250575
+          ],
+          [
+            -2.275636631109604,
+            -0.13260552514187718
+          ],
+          [
+            -2.224331404665379,
+            0.444500684124272
+          ]
+        ],
+        "obstacles.obstacles": [
+          {
+            "center": [
+              -5.0,
+              1.0
+            ],
+            "radius": 0.6
+          }
+        ],
+        "controller.clf_coupling": "gated",
+        "fast_dynamics.substeps": 10
+      },
+      "calibration": {
+        "family": "FD",
+        "seed": 402,
+        "rejections": 39
+      },
+      "calibration_result": null,
+      "physical_validity": {
+        "min_pair_distance": 0.347394732785603,
+        "min_obstacle_clearance": 2.2307093883098053,
+        "lambda2": 0.284546397107434,
+        "lambda2_minus_eta": 0.184546397107434,
+        "cutoff_margin": 0.02104016100485473,
+        "q": [
+          5.054612050985803,
+          5.605591708468295,
+          2.9543841180560646,
+          9.861440210020275,
+          9.44469561010805
+        ],
+        "sigma": [
+          0.8205018448745336,
+          0.8366133192527351,
+          0.7128530209321754,
+          0.9035669540700609,
+          0.899533001831979
+        ],
+        "h_edges": {
+          "0-1": 0.16371797957898754,
+          "0-2": 0.050718566469042735,
+          "0-3": 0.023769175801748203,
+          "0-4": 0.00848760477669527,
+          "1-2": 0.10925532145628987,
+          "1-3": 0.002105776210342498,
+          "1-4": 0.08885459147510331,
+          "3-4": 0.04420227571102263
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": true,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true
+    },
+    {
+      "id": "D11",
+      "group": "D",
+      "pilot": false,
+      "objective": "faster motion (backup corner D2) with a warm start",
+      "horizon_s": 0.05,
+      "init": {
+        "type": "E_rel",
+        "factor": 0.1
+      },
+      "pairs": [
+        [
+          "D03",
+          "contrast"
+        ]
+      ],
+      "exempt": [],
+      "notes": "",
+      "source": "P0",
+      "legacy": false,
+      "num_agents": 2,
+      "num_obstacles": 1,
+      "steps": 50,
+      "dt": 0.001,
+      "config": "configs/D11.yaml",
+      "config_sha256": "0a73b4d275d969f72630ea6877066e7451b7db788bfd62bb57d404058d1da5ba",
+      "changed_from_base": {
+        "simulation.steps": 50,
+        "agents.num_agents": 2,
+        "agents.initial_positions": [
+          [
+            -0.33,
+            3.381
+          ],
+          [
+            0.118,
+            3.226
+          ]
+        ],
+        "obstacles.obstacles": [
+          {
+            "center": [
+              -0.788,
+              2.772
+            ],
+            "radius": 0.6
+          }
+        ],
+        "controller.clf_rate": 0.5,
+        "controller.clf_coupling": "gated",
+        "fast_dynamics.substeps": 10
+      },
+      "calibration": null,
+      "calibration_result": null,
+      "physical_validity": {
+        "min_pair_distance": 0.4740559038763255,
+        "min_obstacle_clearance": 0.16200065616769643,
+        "lambda2": 0.6777485932940519,
+        "lambda2_minus_eta": 0.5777485932940519,
+        "cutoff_margin": 0.32594409612367453,
+        "q": [
+          2.5755902499999994,
+          2.129617
+        ],
+        "sigma": [
+          0.678235628873851,
+          0.6252723262570554
+        ],
+        "h_edges": {
+          "0-1": 0.09558628496953822
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": true,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true,
+      "warm_start": {
+        "file": "warm/D11_warm.pkl",
+        "stop_step": 2292,
+        "frozen_time_s": 2.2920000000000003,
+        "e": 0.003198217214979648,
+        "E": 0.0032181664140640593,
+        "E_stop": 0.003222501360947839,
+        "E_adm_x0": 0.03222501360947839,
+        "rule": {
+          "type": "E_rel",
+          "factor": 0.1
+        },
+        "inactive_duals_zero": true
+      }
+    },
+    {
+      "id": "D12",
+      "group": "D",
+      "pilot": false,
+      "objective": "Configuration C in communication mode",
+      "horizon_s": 2.0,
+      "init": "zero",
+      "pairs": [
+        [
+          "D02",
+          "single-parameter"
+        ]
+      ],
+      "exempt": [],
+      "notes": "",
+      "source": "P0",
+      "legacy": false,
+      "num_agents": 3,
+      "num_obstacles": 1,
+      "steps": 2000,
+      "dt": 0.001,
+      "config": "configs/D12.yaml",
+      "config_sha256": "b1c7fda7173ed054422974729b18c746d97a0c11beebbbdb503928d618a78326",
+      "changed_from_base": {
+        "simulation.steps": 2000,
+        "agents.num_agents": 3,
+        "agents.initial_positions": [
+          [
+            -0.135,
+            2.927
+          ],
+          [
+            -0.498,
+            3.064
+          ],
+          [
+            -0.425,
+            2.687
+          ]
+        ],
+        "obstacles.obstacles": [
+          {
+            "center": [
+              -5.0,
+              1.0
+            ],
+            "radius": 0.6
+          }
+        ],
+        "controller.clf_coupling": "communication",
+        "fast_dynamics.substeps": 10
+      },
+      "calibration": null,
+      "calibration_result": null,
+      "physical_validity": {
+        "min_pair_distance": 0.3764306044943744,
+        "min_obstacle_clearance": 4.276124895857365,
+        "lambda2": 1.5101694482754155,
+        "lambda2_minus_eta": 1.4101694482754155,
+        "cutoff_margin": 0.41200773203580465,
+        "q": [
+          1.67828225,
+          2.343032,
+          1.6662422499999998
+        ],
+        "sigma": [
+          0.551095407533122,
+          0.6525957451864749,
+          0.5487277682144419
+        ],
+        "h_edges": {
+          "0-1": 0.14183434241970952,
+          "0-2": 0.14808534902356174,
+          "1-2": 0.1439924693682435
+        },
+        "rules": {
+          "pair_ge_d0_plus_0.05": true,
+          "pair_safe_H_ge_0": true,
+          "obstacle_clearance_ge_0.05": true,
+          "lambda2_ge_eta_plus_0.01": true,
+          "lambda2_ge_eta": true,
+          "cutoff_margin_ge_0.02": true
+        }
+      },
+      "construction_rule_failures": [],
+      "construction_ok": true,
+      "initial_connectivity_ok": true
+    }
+  ]
+}

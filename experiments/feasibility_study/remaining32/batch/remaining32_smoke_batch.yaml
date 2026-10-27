@@ -1,0 +1,58 @@
+# Server smoke test only (3 steps each): A12 legacy repro config, C04 and D11 warm starts, C05 (M = 40), A08 (N = 10,
+# zero obstacles, expected to stop at step 0).
+name: study48_remaining32_smoke
+scenarios:
+- id: A12
+  base_config: ../configs/A12.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+  - --max-steps
+  - '3'
+  - --log-first-qps
+  - '1'
+- id: C04
+  base_config: ../configs/C04.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --warm
+  - path: ../warm/C04_warm.pkl
+  - --snapshot-every
+  - '1'
+  - --max-steps
+  - '3'
+  - --log-first-qps
+  - '1'
+- id: D11
+  base_config: ../configs/D11.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --warm
+  - path: ../warm/D11_warm.pkl
+  - --snapshot-every
+  - '1'
+  - --max-steps
+  - '3'
+  - --log-first-qps
+  - '1'
+- id: C05
+  base_config: ../configs/C05.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+  - --max-steps
+  - '3'
+  - --log-first-qps
+  - '1'
+- id: A08
+  base_config: ../configs/A08.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+  - --max-steps
+  - '3'
+  - --log-first-qps
+  - '1'
