@@ -8,8 +8,14 @@ local QPs are solved, and the fast state chi_0 at QP time 0, it evaluates at eve
   checked numerically (:meth:`AugmentedRows.check_fast_dynamics`, :meth:`AugmentedRows.check_local_qp`);
 * the regularized augmented KKT point (CLARABEL, then an exact equality-KKT polish on the identified active set,
   then sign verification), the partition (active / inactive / degenerate), LICQ and strict complementarity;
-* a verified fixed-control lower bound on the feasible-allocation margin rho (M2);
-* the Method B lemma constants C0, C1, C2 and the contraction rate, using the unscaled rows;
+* a verified fixed-control lower bound on the feasible-allocation margin rho (M2), and a Farkas upper bound
+  from the same LP's duals; the true rho is >= 0, a nonpositive or unverified M2 candidate certifies nothing
+  beyond rho >= 0, and an upper bound <= m2_zero shows rho is numerically zero, not that rho = 0
+  (see :class:`M2Assessment`);
+* the Method B lemma constants C0, C1, C2 and the contraction rate, using the unscaled rows; the norm bound a on
+  A_A (and on Delta A in the switching factor) is a rigorous floating-point upper bound on the spectral norm by
+  default (``norm="spectral"``) or the Frobenius norm (``norm="frobenius"``, the convention of the saved C and D3
+  certificates); R6.1 Lemmas 2-3 and Thm 3 hold for any upper bound on ||A||_2, see :func:`norm_bounds`;
 * the moving-target Lyapunov recursion (with and without contraction) and the first obstruction.
 
 Degenerate rows (A_r = 0, b_r = 0) keep their dual frozen by the dynamics; the KKT selection uses
@@ -46,7 +52,8 @@ REASON_KIND = {
     "L2_INFEASIBLE": "infeasibility",
     "PART": "prerequisite", "LICQ": "prerequisite", "DUAL0": "prerequisite", "Y0_NEG": "prerequisite",
     "MODEL": "prerequisite", "UNSUPPORTED": "prerequisite", "SOLVER": "prerequisite",
-    "SC_AMBIG": "ambiguity", "WEAK_INACTIVE": "ambiguity", "M2_UNVERIFIED": "ambiguity",
+    "RHO_LB": "sufficient_condition",      # E >= certified lower bound on rho, but E < the upper bound
+    "SC_AMBIG": "ambiguity", "WEAK_INACTIVE": "ambiguity", "M2_UNVERIFIED": "ambiguity", "C0_AMBIG": "ambiguity",
     "GAP_AMBIG": "ambiguity", "KKT_RESIDUAL": "ambiguity",
 }
 
@@ -65,7 +72,54 @@ class CertTolerances:
     smin_safety: float = 1e-12
     gap_ambig: float = 1e-9      # 0 <= E_adm - E below this: ambiguous
     model_tol: float = 1e-9      # admissible relative mismatch of the model vs the implementation
-    norm: str = "frobenius"      # "frobenius" (default) or "spectral" (as in the Experiment A script)
+    m2_zero: float = 1e-9        # certified upper bound on rho at most this: rho numerically zero (not a proof)
+    norm: str = "spectral"       # "spectral" (default; rigorous upper bound on ||A||_2) or "frobenius" (||A||_F)
+
+
+EPS = float(np.finfo(float).eps)
+
+
+def _spectral_error(M: np.ndarray) -> float:
+    """Absolute error bound for the computed singular values of M (LAPACK backward stability,
+    |sigma_hat - sigma| <= p(m, n) eps ||M||_2, with p(m, n) = 64 max(m, n) and ||M||_2 <= ||M||_F)."""
+    return 64.0 * max(M.shape) * EPS * float(np.sqrt(np.sum(M ** 2)))
+
+
+def spectral_upper(M: np.ndarray) -> float:
+    """Rigorous upper bound on ||M||_2: min(computed sigma_max + error bound, inflated Frobenius norm)."""
+    if M.size == 0:
+        return 0.0
+    fro = float(np.sqrt(np.sum(M ** 2)))
+    return min(float(np.linalg.svd(M, compute_uv=False)[0]) + _spectral_error(M), fro * (1 + 4 * M.size * EPS))
+
+
+def norm_bounds(AA: np.ndarray, norm: str, smin_safety: float = 1e-12) -> tuple[float, float, float]:
+    """(a, a_lo, smin) for the active-row matrix A_A.
+
+    a is the norm bound used in C0, E and the switching factor: a rigorous upper bound on ||A_A||_2 ("spectral")
+    or the Frobenius norm ("frobenius", which is >= ||A_A||_2). a_lo is a lower bound on the quantity a stands
+    for (the exact spectral norm, or the Frobenius norm itself), used only to separate a definite C0 failure from
+    an ambiguous one. smin is a lower bound on sigma_min(A_A) (the m-th singular value); +inf if m = 0."""
+    m = AA.shape[0]
+    if m == 0:
+        return 0.0, 0.0, math.inf
+    if norm == "spectral":
+        sv = np.linalg.svd(AA, compute_uv=False)
+        d = _spectral_error(AA)
+        a = spectral_upper(AA)
+        smin = max(float(sv[m - 1]) - d, 0.0) if m <= AA.shape[1] else 0.0
+        return a, max(float(sv[0]) - d, 0.0), smin
+    if norm != "frobenius":
+        raise ValueError(f"unknown norm {norm!r}")
+    a = float(np.sqrt(np.sum(AA ** 2)))
+    lmin = float(np.linalg.eigvalsh(AA @ AA.T).min()) - smin_safety * (1 + a * a)
+    return a, a, math.sqrt(max(lmin, 0.0))
+
+
+def kappa_p(r: float, pmin: float, pmax: float, a: float) -> tuple[float, float]:
+    """kappa_p of R6.1 Lemma 2 and an absolute floating-point error bound for its evaluation."""
+    terms = (2 * r * pmin, r ** 2 * (pmax ** 2 + 3 * a ** 2), 2 * r ** 3 * pmax * a ** 2, 2 * r ** 4 * a ** 4)
+    return terms[0] - terms[1] - terms[2] - terms[3], 16 * EPS * sum(abs(t) for t in terms)
 
 
 def _quiet(fn, *args, **kwargs):
@@ -336,8 +390,10 @@ def solve_kkt(rows: AugmentedRows, tol: CertTolerances) -> KKTPoint:
     if prob.status in ("infeasible", "infeasible_inaccurate"):
         return KKTPoint(status="L2_INFEASIBLE", note=f"CLARABEL status {prob.status} (solver-reported, not a "
                                                     f"re-verified Farkas certificate)")
-    if prob.status != "optimal":
+    if prob.status not in ("optimal", "optimal_inaccurate") or p.value is None:
         return KKTPoint(status="SOLVER", note=f"CLARABEL status {prob.status}")
+    # The CLARABEL point only seeds the active set; the KKT point is the exact equality-KKT solution on that set,
+    # verified by sign conditions below, so an "optimal_inaccurate" seed is acceptable.
     pc = np.asarray(p.value)
     g = A @ pc + b
     act = nd & (np.abs(g) <= tol.act_rel * scale)
@@ -373,6 +429,7 @@ def solve_kkt(rows: AugmentedRows, tol: CertTolerances) -> KKTPoint:
               float(np.max(np.abs(gg[act]) / scale[act])) if m else 0.0)
     slack_norm = -gg[inact] / np.where(rows.row_norm[inact] > 0, rows.row_norm[inact], np.inf)
     out = KKTPoint(status="ok", p=pp, y_active=ya, active=act, inactive=inact, rank=rank, m=m,
+                   note=f"CLARABEL seed status {prob.status}",
                    y_min=float(ya.min()) if m else math.inf,
                    slack_min_norm=float(np.min(np.where(rows.row_norm[inact] > 0, slack_norm, np.inf)))
                    if inact.any() else math.inf,
@@ -387,10 +444,70 @@ def solve_kkt(rows: AugmentedRows, tol: CertTolerances) -> KKTPoint:
 
 
 # ----------------------------------------------------------------------------------------------- margins
+@dataclass
+class M2Assessment:
+    """Bounds on the feasible-allocation margin rho(z*) >= 0 (the radius of the largest ball around z* in Z_feas).
+
+    candidate  min over agents of the fixed-control LP value (R6.1 Cor 1); may be <= 0 (round-off at a zero
+               margin, or a slightly infeasible z*) or -inf (LP failure / re-verification failure).
+    lower      certified lower bound: the candidate if every agent is verified and the candidate is > 0, else 0
+               (rho >= 0 always holds; nothing more is certified).
+    upper      certified upper bound min_i ub_i from the LP duals (a ray along which Z_feas is left, re-verified
+               with rounding-error terms); +inf if none.
+    status     certified_positive (lower > 0) | z_outside_Zfeas (a Farkas ray certifies that z itself is
+               infeasible for some agent; at a KKT point z* this indicates numerical trouble) |
+               upper_bound_below_tol (0 <= rho <= upper <= m2_zero: numerically zero; NOT a proof that rho = 0) |
+               nonpositive_candidate (verified LP, candidate <= 0) | unverified.
+    structural_zero_rows  per agent: the label of the single row supporting the upper-bound ray when that row has
+               exactly zero control coefficients (a z-only row, R6.1 F3 support-1 ray), else None. If that row is
+               exactly active at the exact KKT point, rho = 0 holds exactly; this is evidence, not a status."""
+    candidate: float
+    lower: float
+    upper: float
+    status: str
+    per_candidate: list[float]
+    per_upper: list[float]
+    structural_zero_rows: list = field(default_factory=list)
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
 def m2_margin(rows: AugmentedRows, zstar: np.ndarray, tol: CertTolerances) -> tuple[float, list[float]]:
-    """Fixed-control lower bound on rho(z*) (R6.1 Cor 1), with the control re-verified a posteriori.
-    Returns (rho_lb, per_agent); -inf marks an agent whose bound could not be verified."""
-    per = []
+    """Fixed-control M2 candidate (R6.1 Cor 1), with the control re-verified a posteriori.
+    Returns (candidate, per_agent); -inf marks an agent whose bound could not be verified. A candidate <= 0 is
+    not a margin (the true rho is >= 0); use :func:`m2_assess` for the certified bounds."""
+    a = m2_assess(rows, zstar, tol)
+    return a.candidate, a.per_candidate
+
+
+def _support_zero_row(rows, R, Au, lam):
+    lam = np.maximum(np.asarray(lam, float), 0.0)
+    if not lam.any():
+        return None
+    supp = np.flatnonzero(lam > 1e-12 * lam.max())
+    return rows.labels[R[supp[0]]] if len(supp) == 1 and not Au[supp[0]].any() else None
+
+
+def _m2_upper(rows, R, Au, Th, zstar, lam) -> float:
+    """Farkas upper bound on agent i's margin from multipliers lam >= 0 of its rows R: along d = Th^T lam / |.|
+    every z = z* + t d with t > ub admits no w (|w| <= u_max is implied by the actuator rows among R)."""
+    lam = np.maximum(np.asarray(lam, float), 0.0)
+    if not lam.any():
+        return math.inf
+    W = float(rows.cfg.controller.u_max)
+    beta0 = -rows.b[R] - Th @ zstar
+    rr, g = Au.T @ lam, Th.T @ lam
+    gam = 4.0 * (len(R) + Th.shape[1] + 2) * EPS
+    num = (float(lam @ beta0) + W * float(np.abs(rr).sum())
+           + gam * float(lam @ (np.abs(rows.b[R]) + np.abs(Th) @ np.abs(zstar) + W * np.abs(Au).sum(1))))
+    den = float(np.linalg.norm(g)) - gam * float(lam @ np.linalg.norm(Th, axis=1))
+    return num / den if den > 0 else math.inf          # < 0: z itself is outside agent i's feasible set
+
+
+def m2_assess(rows: AugmentedRows, zstar: np.ndarray, tol: CertTolerances) -> M2Assessment:
+    """M2 lower bound and dual-based upper bound on rho(z*) for every agent (see :class:`M2Assessment`)."""
+    per, ups, szr = [], [], []
     for i in range(rows.N):
         R = [k for k in range(len(rows.b)) if rows.own[k] == i and not rows.deg[k]]
         Au = rows.A[np.ix_(R, rows.iw[i])]
@@ -403,14 +520,34 @@ def m2_margin(rows: AugmentedRows, zstar: np.ndarray, tol: CertTolerances) -> tu
                       bounds=[(None, None), (None, None), (None, tol.m2_t_max)], method="highs")
         if res.status != 0:
             per.append(-math.inf)
+            ups.append(math.inf)
+            szr.append(None)
             continue
+        ups.append(_m2_upper(rows, R, Au, Th, zstar, -np.asarray(res.ineqlin.marginals)))
+        szr.append(_support_zero_row(rows, R, Au, -np.asarray(res.ineqlin.marginals)))
         u = res.x[:2]
         slack = beta - Au @ u
         if np.any(slack[hard] <= 0):
             per.append(-math.inf)
             continue
         per.append(float(np.min(slack[~hard] / thn[~hard])) - tol.m2_safety if (~hard).any() else math.inf)
-    return (min(per) if per else math.inf), per
+    cand = min(per) if per else math.inf
+    raw_upper = min(ups) if ups else math.inf
+    upper = max(raw_upper, 0.0)
+    ups = [max(u, 0.0) for u in ups]
+    verified = all(v > -math.inf for v in per)
+    if verified and cand > 0:
+        status, lower = "certified_positive", cand
+    elif raw_upper < 0:
+        status, lower = "z_outside_Zfeas", 0.0
+    elif upper <= tol.m2_zero:
+        status, lower = "upper_bound_below_tol", 0.0
+    elif verified:
+        status, lower = "nonpositive_candidate", 0.0
+    else:
+        status, lower = "unverified", 0.0
+    return M2Assessment(candidate=cand, lower=lower, upper=upper, status=status, per_candidate=per, per_upper=ups,
+                        structural_zero_rows=szr)
 
 
 def m1_margin(rows: AugmentedRows, zstar: np.ndarray) -> tuple[float, list[float]]:
@@ -446,32 +583,41 @@ def m1_margin(rows: AugmentedRows, zstar: np.ndarray) -> tuple[float, list[float
 # ----------------------------------------------------------------------------------------------- lemma
 @dataclass
 class LemmaConstants:
-    a: float          # norm bound on A_A used in C0, E, switching
+    a: float          # norm bound on A_A used in C0, E, switching (upper bound on ||A_A||_2)
     smin: float       # lower bound on sigma_min(A_A) (m-th singular value); +inf if m = 0
     kappa_p: float
     c: float          # per-substep contraction (0 if kappa_p <= 0)
-    c0_ok: bool
+    c0_ok: bool       # C0 verified (c0_status == "ok")
     C1: float
     C1_label: str
     C2: float
     C2_label: str
+    a_lo: float = math.nan       # lower bound on the quantity a bounds (see norm_bounds)
+    kappa_p_lo_a: float = math.nan   # kappa_p evaluated at a_lo (the most favourable admissible norm value)
+    c0_status: str = ""          # ok | fail (fails even at a_lo) | ambiguous (undecided within the bounds)
+    norm: str = ""
+
+
+def c0_decision(r: float, pmin: float, pmax: float, a: float, a_lo: float) -> tuple[float, str, float]:
+    """(kappa_p(a), status, kappa_p(a_lo)). status "ok": r a < 1 and kappa_p(a) >= 0 beyond its rounding error;
+    "fail": C0 fails even at the lower bound a_lo (beyond rounding); "ambiguous": otherwise. kappa_p is decreasing
+    in a, so "fail" means no admissible norm value in [a_lo, a] satisfies C0."""
+    kap, err = kappa_p(r, pmin, pmax, a)
+    kap_lo, err_lo = kappa_p(r, pmin, pmax, a_lo)
+    if r * a < 1.0 and kap - err >= 0.0:
+        return kap, "ok", kap_lo
+    if r * a_lo >= 1.0 or kap_lo + err_lo < 0.0:
+        return kap, "fail", kap_lo
+    return kap, "ambiguous", kap_lo
 
 
 def lemma_constants(rows: AugmentedRows, kkt: KKTPoint, r: float, tol: CertTolerances) -> LemmaConstants:
     AA = rows.A[kkt.active]
     m = AA.shape[0]
     pmin, pmax = float(rows.P.min()), float(rows.P.max())
-    if m == 0:
-        a, smin = 0.0, math.inf
-    elif tol.norm == "spectral":
-        sv = np.linalg.svd(AA, compute_uv=False)
-        a, smin = float(sv[0]) * (1 + 1e-12), float(sv[-1]) * (1 - 1e-12)
-    else:
-        a = float(np.sqrt(np.sum(AA ** 2)))
-        lmin = float(np.linalg.eigvalsh(AA @ AA.T).min()) - tol.smin_safety * (1 + a * a)
-        smin = math.sqrt(max(lmin, 0.0))
-    kap = 2 * r * pmin - r ** 2 * (pmax ** 2 + 3 * a ** 2) - 2 * r ** 3 * pmax * a ** 2 - 2 * r ** 4 * a ** 4
-    c0 = (r * a < 1.0) and kap >= 0.0
+    a, a_lo, smin = norm_bounds(AA, tol.norm, tol.smin_safety)
+    kap, c0s, kap_lo = c0_decision(r, pmin, pmax, a, a_lo)
+    c0 = c0s == "ok"
     cc = min(kap, r ** 2 * smin ** 2 / 2) / (1 + r * a) if c0 else 0.0
     gg = rows.A @ kkt.p + rows.b
     inact = np.flatnonzero(kkt.inactive)
@@ -485,7 +631,8 @@ def lemma_constants(rows: AugmentedRows, kkt: KKTPoint, r: float, tol: CertToler
         v = float(y) / (r * rows.row_norm[k])
         if v < C2:
             C2, C2l = v, rows.labels[k]
-    return LemmaConstants(a=a, smin=smin, kappa_p=kap, c=cc, c0_ok=c0, C1=C1, C1_label=C1l, C2=C2, C2_label=C2l)
+    return LemmaConstants(a=a, smin=smin, kappa_p=kap, c=cc, c0_ok=c0, C1=C1, C1_label=C1l, C2=C2, C2_label=C2l,
+                          a_lo=a_lo, kappa_p_lo_a=kap_lo, c0_status=c0s, norm=tol.norm)
 
 
 def _U(ep, ey, AA, r):
@@ -549,12 +696,19 @@ def certify(model: CertModel, positions: list, chi0: dict[int, FastState], tol: 
 
     Both recursions are evaluated in one pass: "contraction" (with c_k) and "non_increase" (c_k := 0). A state
     k is certified for a version iff the KKT prerequisites hold, the partition equals that at k = 0, C0 holds,
-    E_k < rho_k, and (for k <= K-2, i.e. when substeps at x_k follow) E_k <= min(C1_k, C2_k)."""
+    E_k < rho_k, and (for k <= K-2, i.e. when substeps at x_k follow) E_k <= min(C1_k, C2_k).
+
+    rho_k is the certified M2 lower bound (>= 0). A RHO failure with E_k >= the certified upper bound on rho is
+    reported as "RHO" (fails for the true rho); with lower <= E_k < upper as "RHO_LB" (fails for the certified
+    bound only). With norm="spectral", the switching norm bound is d_k = max(spectral_upper(Delta A), a_{k+1} - a_k),
+    an upper bound on ||Delta A||_2 that also satisfies a_{k+1} <= a_k + d_k (R6.1 Remark 6.1) by construction."""
     tol = tol or CertTolerances()
     K = len(positions)
     r, M = model.r, model.M
-    keys = ("E", "E_ni", "E_adm", "rho", "rho_agents", "C1", "C1_label", "C2", "C2_label", "delta", "a", "smin",
-            "kappa_p", "c", "y_min", "slack_min", "kkt_status", "active", "residual", "clarabel_diff", "kappa_sw")
+    keys = ("E", "E_ni", "E_adm", "rho", "rho_agents", "rho_candidate", "rho_upper", "rho_status",
+            "rho_structural_zero_rows", "C1", "C1_label",
+            "C2", "C2_label", "delta", "a", "a_lo", "dA", "smin", "kappa_p", "c0_status", "c", "y_min", "slack_min",
+            "kkt_status", "active", "residual", "clarabel_diff", "kappa_sw")
     steps: dict[str, list] = {k: [] for k in keys}
     init: dict[str, Any] = {}
     results: dict[str, CertificateResult] = {}
@@ -618,7 +772,8 @@ def certify(model: CertModel, positions: list, chi0: dict[int, FastState], tol: 
             fail_all("PART", k, f"partition change at k={k}: active +{gained} -{lost}; degenerate changes {dgc}")
             break
         lc = lemma_constants(rows, kkt, r, tol)
-        rho, rho_ag = m2_margin(rows, kkt.p[rows.nw:], tol)
+        m2 = m2_assess(rows, kkt.p[rows.nw:], tol)
+        rho, rho_ag = m2.lower, m2.per_candidate
         AA = rows.A[kkt.active]
         chi = np.concatenate([kkt.p, kkt.y_active])
         if k == 0:
@@ -626,11 +781,14 @@ def certify(model: CertModel, positions: list, chi0: dict[int, FastState], tol: 
             R0 = math.sqrt(max(_U(ep, ey, AA, r), 0.0))
             R = {v: R0 for v in VERSIONS}
             init.update(e0=float(np.linalg.norm(np.r_[ep, ey])), sqrtU0=R0)
-            dlt, ksw = 0.0, 1.0
+            dlt, ksw, dA = 0.0, 1.0, 0.0
         else:
             pchi, pc, pAA, pa = prev
             dlt = float(np.linalg.norm(chi - pchi))
-            dA = float(np.linalg.norm(AA - pAA, 2) if tol.norm == "spectral" else np.linalg.norm(AA - pAA))
+            if tol.norm == "spectral":
+                dA = max(spectral_upper(AA - pAA), lc.a - pa)
+            else:
+                dA = float(np.linalg.norm(AA - pAA))
             ksw = 1 + r * dA / (1 - r * pa)
             for v in VERSIONS:
                 Rp = R[v] * (1 - pc) ** (M / 2) if v == "contraction" else R[v]
@@ -638,9 +796,11 @@ def certify(model: CertModel, positions: list, chi0: dict[int, FastState], tol: 
         E = {v: (R[v] / math.sqrt(1 - r * lc.a) if lc.c0_ok else math.inf) for v in VERSIONS}
         E_adm = min(lc.C1, lc.C2, rho)
         for key, val in (("E", E["contraction"]), ("E_ni", E["non_increase"]), ("E_adm", E_adm), ("rho", rho),
-                         ("rho_agents", rho_ag), ("C1", lc.C1), ("C1_label", lc.C1_label), ("C2", lc.C2),
-                         ("C2_label", lc.C2_label), ("delta", dlt), ("a", lc.a), ("smin", lc.smin),
-                         ("kappa_p", lc.kappa_p), ("c", lc.c), ("y_min", kkt.y_min), ("slack_min", kkt.slack_min_norm),
+                         ("rho_agents", rho_ag), ("rho_candidate", m2.candidate), ("rho_upper", m2.upper),
+                         ("rho_status", m2.status), ("rho_structural_zero_rows", m2.structural_zero_rows),
+                         ("C1", lc.C1), ("C1_label", lc.C1_label), ("C2", lc.C2),
+                         ("C2_label", lc.C2_label), ("delta", dlt), ("a", lc.a), ("a_lo", lc.a_lo), ("dA", dA),
+                         ("smin", lc.smin), ("kappa_p", lc.kappa_p), ("c0_status", lc.c0_status), ("c", lc.c), ("y_min", kkt.y_min), ("slack_min", kkt.slack_min_norm),
                          ("active", [rows.labels[i] for i in part[0]]), ("residual", kkt.residual),
                          ("clarabel_diff", kkt.clarabel_diff), ("kappa_sw", ksw)):
             steps[key].append(val)
@@ -652,10 +812,14 @@ def certify(model: CertModel, positions: list, chi0: dict[int, FastState], tol: 
                 continue
             Ev = E[v]
             fail = None
-            if not math.isfinite(rho):
-                fail = ("M2_UNVERIFIED", f"k={k}: M2 margin not verified")
+            if m2.status == "unverified" and not Ev >= m2.upper:
+                fail = ("M2_UNVERIFIED", f"k={k}: M2 margin not verified (candidate {m2.candidate:.3e}, "
+                                         f"certified upper bound {m2.upper:.3e})")
+            elif lc.c0_status == "ambiguous":
+                fail = ("C0_AMBIG", f"k={k}: C0 undecided within the norm bounds (r a = {r * lc.a:.3e}, kappa_p = "
+                                    f"{lc.kappa_p:.3e} at a, {lc.kappa_p_lo_a:.3e} at a_lo)")
             elif not lc.c0_ok:
-                fail = ("C0", f"k={k}: C0 fails (r a = {r * lc.a:.3e}, kappa_p = {lc.kappa_p:.3e})")
+                fail = ("C0", f"k={k}: C0 fails (r a = {r * lc.a:.3e}, kappa_p = {lc.kappa_p:.3e}, {lc.norm} norm)")
             else:
                 cands = [("RHO", rho, Ev >= rho)]
                 if k <= K - 2:
@@ -664,6 +828,10 @@ def certify(model: CertModel, positions: list, chi0: dict[int, FastState], tol: 
                 if violated:
                     n, val = min(violated, key=lambda t: t[1])
                     fail = (n, f"k={k}: E = {Ev:.6e} vs {n} = {val:.6e}")
+                    if n == "RHO":
+                        n = "RHO" if Ev >= m2.upper else "RHO_LB"
+                        fail = (n, f"k={k}: E = {Ev:.6e} vs certified rho lower bound {val:.6e} (rho upper bound "
+                                   f"{m2.upper:.6e}; M2 status {m2.status}, candidate {m2.candidate:.3e})")
                 else:
                     gap = min(val for _, val, _ in cands) - Ev
                     if gap < tol.gap_ambig:
@@ -672,7 +840,7 @@ def certify(model: CertModel, positions: list, chi0: dict[int, FastState], tol: 
                 code, msg = fail
                 kind = REASON_KIND[code]
                 results[v] = CertificateResult(v, _status_for(kind, k), code, kind, k, k, K, msg)
-                if prop6_check and code == "RHO" and "prop6_at_fail" not in init:
+                if prop6_check and code in ("RHO", "RHO_LB") and "prop6_at_fail" not in init:
                     s_star = rows.local_margins(p0[rows.nw:])
                     init["prop6_at_fail"] = {"k": k, "version": v, "z0_local_margins": s_star,
                                              "z0_feasible": all(lp_verdict(s, Tolerances()) == "feasible"
@@ -708,7 +876,7 @@ def observed_errors(model: CertModel, positions: list, snapshots: list[dict[int,
         iz = bool(np.all(y[kkt.inactive] == 0.0))
         out["inactive_zero"].append(iz)
         AA = rows.A[kkt.active]
-        a = float(np.sqrt(np.sum(AA ** 2))) if tol.norm != "spectral" else float(np.linalg.svd(AA, compute_uv=False)[0])
+        a = norm_bounds(AA, tol.norm, tol.smin_safety)[0]
         U = _U(p - kkt.p, y[kkt.active] - kkt.y_active, AA, model.r)
         out["radius"].append(math.sqrt(max(U, 0)) / math.sqrt(1 - model.r * a) if iz else math.nan)
     return out

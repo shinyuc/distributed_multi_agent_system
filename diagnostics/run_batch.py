@@ -26,6 +26,17 @@ Batch spec (YAML):
         base_config: configs/default_5_agents.yaml         # optional per-scenario base
         overrides: {fast_dynamics.eta: 0.125}
 
+Optional per-scenario (or batch-level) runner: ``runner`` names the module run in the child
+(allowed: diagnostics.run_feasibility, the default, and diagnostics.study48.run_pilot, which wraps the
+unchanged run_feasibility pipeline with a warm start, a strict feasibility guard and fast-state snapshots), and
+``runner_args`` is a list of extra command-line arguments; an item ``{path: REL}`` is resolved like
+``base_config`` (spec directory, then repository root) to an absolute path that must exist:
+
+      - id: D03
+        base_config: ../configs/D03.yaml
+        runner: diagnostics.study48.run_pilot
+        runner_args: ["--warm", {path: ../warm/D03_warm.pkl}, "--snapshot-every", "1"]
+
 Overrides use dotted keys; a key may add a new leaf (e.g. ``fast_dynamics.substeps``) but its
 parent section must already exist. Scenario overrides are applied after the batch-wide ones.
 Relative ``base_config`` paths are resolved against the spec file's directory, then the
@@ -92,6 +103,9 @@ THREAD_ENV = {
 # makes `import osqp` fail in the child. Children always use the builtin backend that
 # controller.local_qp selects explicitly.
 CHILD_SOLVER_ENV = {"OSQP_ALGEBRA_BACKEND": "builtin"}
+# Modules a scenario may run in its child process (each accepts --config and --out).
+RUNNERS = ("diagnostics.run_feasibility", "diagnostics.study48.run_pilot")
+DEFAULT_RUNNER = RUNNERS[0]
 # Starts with a letter or digit, so "." and ".." (and hidden names) are impossible.
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 # Configuration values copied into the summary for every scenario.
@@ -141,8 +155,24 @@ def _resolve_config_path(path: str, spec_dir: Path) -> Path:
     raise FileNotFoundError(f"base_config {path!r} not found relative to {spec_dir} or {REPO}")
 
 
+def _runner_args(args: Any, spec_dir: Path, sid: str) -> list[str]:
+    if args is None:
+        return []
+    if not isinstance(args, list):
+        raise ValueError(f"scenario {sid!r}: runner_args must be a list")
+    out = []
+    for a in args:
+        if isinstance(a, dict) and set(a) == {"path"}:
+            out.append(str(_resolve_config_path(str(a["path"]), spec_dir)))
+        elif isinstance(a, (str, int, float)) and not isinstance(a, bool):
+            out.append(str(a))
+        else:
+            raise ValueError(f"scenario {sid!r}: invalid runner_args item {a!r}")
+    return out
+
+
 def load_spec(spec_path: str | Path) -> dict[str, Any]:
-    """Read a batch spec and return {name, scenarios: [{id, base_config, overrides, config}]}."""
+    """Read a batch spec and return {name, scenarios: [{id, base_config, overrides, config, runner, runner_args}]}."""
     spec_path = Path(spec_path)
     raw = yaml.safe_load(spec_path.read_text()) or {}
     scenarios = raw.get("scenarios") or []
@@ -165,7 +195,12 @@ def load_spec(spec_path: str | Path) -> dict[str, Any]:
         base_path = _resolve_config_path(base, spec_path.parent)
         overrides = {**(raw.get("overrides") or {}), **(sc.get("overrides") or {})}
         config = apply_overrides(yaml.safe_load(base_path.read_text()) or {}, overrides)
-        out.append({"id": sid, "base_config": str(base_path), "overrides": overrides, "config": config})
+        runner = str(sc.get("runner", raw.get("runner", DEFAULT_RUNNER)))
+        if runner not in RUNNERS:
+            raise ValueError(f"scenario {sid!r}: runner {runner!r} not in {RUNNERS}")
+        rargs = _runner_args(sc["runner_args"] if "runner_args" in sc else raw.get("runner_args"), spec_path.parent, sid)
+        out.append({"id": sid, "base_config": str(base_path), "overrides": overrides, "config": config,
+                    "runner": runner, "runner_args": rargs})
     return {"name": str(raw.get("name") or spec_path.stem), "scenarios": out}
 
 
@@ -194,8 +229,14 @@ def summarize_scenario(sdir: Path, outcome: dict[str, Any], config: dict[str, An
     row["verified_feasible_full_horizon"] = False
     summary = json.loads((run / "summary.json").read_text()) if (run / "summary.json").exists() else None
     report = json.loads((run / "run_report.json").read_text()) if (run / "run_report.json").exists() else None
+    guard = (summary is not None and not summary.get("run_error") and summary.get("termination_reason") == "exception"
+             and (summary.get("termination_exception") or {}).get("type") == "StrictFeasibilityGuard")
     if outcome.get("status") in ("timeout", "interrupted", "not_started"):
         row["status"] = outcome["status"]
+    elif guard:
+        # diagnostics.study48.run_pilot stopped the run: a solver-reported solution of an LP-infeasible QP
+        row["status"] = "terminated"
+        row["failure"] = "strict feasibility guard: " + str(summary["termination_exception"].get("message"))
     elif summary is None or summary.get("run_error") or summary.get("termination_reason") == "exception":
         # No result, or an unexpected exception (not a QP failure or numerical guard) ended the run.
         row["status"] = "error"
@@ -457,7 +498,8 @@ def run_batch(spec_path: str | Path, batch_dir: Path, workers: int, timeout: flo
         with (sdir / "scenario.yaml").open("w", encoding="utf-8") as f:
             yaml.safe_dump(sc["config"], f, sort_keys=False)
         meta["scenarios"][sc["id"]] = {"status": "pending", "base_config": sc["base_config"],
-                                       "overrides": sc["overrides"]}
+                                       "overrides": sc["overrides"], "runner": sc["runner"],
+                                       "runner_args": sc["runner_args"]}
     write_meta()
 
     pending = deque(spec["scenarios"])
@@ -471,8 +513,8 @@ def run_batch(spec_path: str | Path, batch_dir: Path, workers: int, timeout: flo
                 sdir = batch_dir / "scenarios" / sc["id"]
                 out_f = open(sdir / "stdout.log", "w", encoding="utf-8")
                 err_f = open(sdir / "stderr.log", "w", encoding="utf-8")
-                cmd = [sys.executable, "-m", "diagnostics.run_feasibility",
-                       "--config", str(sdir / "scenario.yaml"), "--out", str(sdir / "run")]
+                cmd = [sys.executable, "-m", sc["runner"], "--config", str(sdir / "scenario.yaml"),
+                       "--out", str(sdir / "run"), *sc["runner_args"]]
                 proc = subprocess.Popen(cmd, cwd=REPO, env=env, stdout=out_f, stderr=err_f,
                                         stdin=subprocess.DEVNULL)
                 running[sc["id"]] = {"proc": proc, "t0": time.perf_counter(), "files": (out_f, err_f)}

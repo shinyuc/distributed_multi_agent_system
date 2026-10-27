@@ -2,7 +2,7 @@
 
 Usage:
     python -m diagnostics.certify_run --config CFG.yaml --run-dir RUN_DIR [--init zero | --init WARM.pkl]
-                                      [--num-states K] [--norm frobenius|spectral] [--out OUT.json]
+                                      [--num-states K] [--norm spectral|frobenius] [--out OUT.json]
                                       [--check-model-at 0,last]
 
 The QP states are trajectories[0..K-1] from RUN_DIR/trajectories.json. By default K = steps_completed for a
@@ -45,7 +45,7 @@ def main(argv=None) -> int:
     ap.add_argument("--run-dir", required=True)
     ap.add_argument("--init", default="zero")
     ap.add_argument("--num-states", type=int, default=None)
-    ap.add_argument("--norm", choices=("frobenius", "spectral"), default="frobenius")
+    ap.add_argument("--norm", choices=("spectral", "frobenius"), default="spectral")
     ap.add_argument("--check-model-at", default="0")
     ap.add_argument("--out", default=None, help="JSON summary path (per-step arrays go to the same stem .npz)")
     a = ap.parse_args(argv)

@@ -140,6 +140,22 @@ def classify_polytope(M: np.ndarray, beta: np.ndarray, lo: np.ndarray, hi: np.nd
     if np.any(c[unb] != 0.0):
         out.note = (f"LP margin {s:.3e} > 0 but the certificate has nonzero coefficients "
                     f"(max {np.max(np.abs(c[unb])):.1e}) on unbounded variables: not verifiable")
+        # The same multipliers still prove infeasibility for every point whose unbounded variables are bounded by
+        # Z_min = phi_b / ||c_unb||_1 (phi_b: the Farkas margin with the bounded variables' box terms only):
+        # lam^T (M x - beta) <= 0 fails whenever ||x_unb||_inf < Z_min. Reported as evidence, verdict stays U.
+        lo_b, hi_b = np.where(unb, 0.0, lo), np.where(unb, 0.0, hi)
+        cb = np.where(unb, 0.0, c)
+        phi_b = float(np.sum(np.minimum(cb * lo_b, cb * hi_b))) - float(lam @ bh)
+        B = np.maximum(np.abs(lo_b), np.abs(hi_b))
+        err = tol.kappa * EPS * (float(np.abs(cb) @ B) + float(lam @ np.abs(bh)) + float(B @ (np.abs(Mh).T @ lam)) + 1.0)
+        cu = float(np.abs(c[unb]).sum()) * (1 + tol.kappa * EPS * Mh.shape[0])
+        out.certificate = {"type": "farkas_bounded_unbounded_vars", "phi_bounded": phi_b, "err": err,
+                           "c_unbounded_l1": cu, "c_unbounded_max": float(np.max(np.abs(c[unb]))),
+                           "unbounded_inf_norm_lower_bound": (phi_b - err) / cu if phi_b > err else 0.0,
+                           "support": [klab[k] for k in np.flatnonzero(lam > 1e-12)]}
+        if phi_b > err:
+            out.note += (f"; every feasible point needs ||unbounded vars||_inf >= "
+                         f"{(phi_b - err) / cu:.3e} (same multipliers)")
         return out
     lo_b, hi_b = np.where(unb, 0.0, lo), np.where(unb, 0.0, hi)
     box_term = float(np.sum(np.minimum(c * lo_b, c * hi_b)))
@@ -349,9 +365,14 @@ def static_check(model: CertModel, positions, z: np.ndarray | None = None, tol: 
         Ma, ba, lo, hi, la = level2_augmented_problem(rows)
         x = np.r_[uu, zz]
         nr = np.linalg.norm(Ma, axis=1)
-        resid = (Ma @ x - ba) / np.where(nr > 0, nr, 1.0)
-        lifted = {"verified": bool(resid.max() <= -tol.tau_w and np.all(np.isfinite(zz))),
-                  "max_normalized_residual": float(resid.max()), "z_inf_norm": float(np.max(np.abs(zz))) if zz.size else 0.0}
+        nrs = np.where(nr > 0, nr, 1.0)
+        resid = (Ma @ x - ba) / nrs
+        # rounding error of the residual evaluation (|fl(M x - beta) - (M x - beta)| <= gamma (|M||x| + |beta|))
+        rerr = 2.0 * (Ma.shape[1] + 2) * EPS * (np.abs(Ma) @ np.abs(x) + np.abs(ba)) / nrs
+        lifted = {"verified": bool(np.max(resid + rerr) <= -tol.tau_w and np.all(np.isfinite(zz))),
+                  "max_normalized_residual": float(resid.max()), "max_residual_error_bound": float(rerr.max()),
+                  "z_inf_norm": float(np.max(np.abs(zz))) if zz.size else 0.0,
+                  "u": uu.tolist(), "z": zz.tolist()}
     t["level2"] = time.perf_counter() - t0
     t0 = time.perf_counter()
     Ma, ba, lo, hi, la = level2_augmented_problem(rows)

@@ -17,7 +17,8 @@ import yaml
 from config import load_config
 from controller.fast_dynamics import update_fast_state
 from diagnostics.certificate import (CERT_NA, CERT_OK, CERT_PARTIAL, CertModel, CertTolerances, KKTPoint,
-                                     _quiet, _U, certify, lemma_constants, m2_margin, solve_kkt, zero_fast_state)
+                                     _quiet, _U, c0_decision, certify, kappa_p, lemma_constants, m2_assess, m2_margin,
+                                     norm_bounds, solve_kkt, spectral_upper, zero_fast_state)
 from diagnostics.feasibility import Tolerances, local_feasibility, lp_verdict
 
 REPO = Path(__file__).resolve().parents[1]
@@ -73,6 +74,88 @@ def test_communication_mode_inside_agent_has_zero_margin(tmp_path):
     kkt = solve_kkt(rows, CertTolerances())
     rho, per = m2_margin(rows, kkt.p[rows.nw:], CertTolerances())
     assert rows.labels.index("clf(1)") in np.flatnonzero(kkt.active) and rho <= 1e-9 and per[1] <= 1e-9
+    m2 = m2_assess(rows, kkt.p[rows.nw:], CertTolerances())
+    assert m2.status == "upper_bound_below_tol" and m2.lower == 0.0 and 0.0 <= m2.upper <= 1e-9 and m2.per_upper[1] <= 1e-9
+    assert m2.structural_zero_rows[1] == "clf(1)"            # the z-only row of the inside agent (support-1 ray)
+
+
+def test_m2_assessment_brackets_rho_and_never_reports_a_negative_margin(tmp_path):
+    model = CertModel(_cfg(tmp_path, TRIPLE, mode="gated", clf_rate=0.25))
+    rows = model.rows(TRIPLE)
+    kkt = solve_kkt(rows, CertTolerances())
+    zstar = kkt.p[rows.nw:]
+    m2 = m2_assess(rows, zstar, CertTolerances())
+    assert m2.status == "certified_positive" and 0 < m2.lower <= m2.upper < math.inf
+    assert m2.lower == m2.candidate
+    tol = Tolerances()
+    infeasible_seen = False
+    for k, ub in enumerate(m2.per_upper):        # beyond the upper bound, along some direction, Z_feas is left
+        if not math.isfinite(ub):
+            continue
+        for t in (1.01, 1.5):
+            ok = []
+            for d in np.eye(zstar.size):
+                for sgn in (1.0, -1.0):
+                    p = kkt.p.copy()
+                    p[rows.nw:] = zstar + sgn * t * max(ub, 1e-6) * d * math.sqrt(zstar.size)
+                    fs = rows.from_vec(p, np.zeros(len(rows.b)))
+                    qp = rows.local_qp(k, fs)
+                    lp = local_feasibility(np.asarray(qp.A_raw), np.asarray(qp.b_raw), qp.row_labels,
+                                           model.cfg.controller.u_max, tol)
+                    ok.append(lp_verdict(lp["s_star"], tol) == "feasible")
+            infeasible_seen |= not all(ok)
+    assert infeasible_seen
+    # a nonpositive candidate is reported as 0, never as a negative margin
+    neg = m2_assess(rows, zstar + 5.0 * np.random.default_rng(2).normal(size=zstar.size), CertTolerances())
+    assert neg.candidate < 0 and neg.lower == 0.0 and neg.upper == 0.0 and neg.status == "z_outside_Zfeas"
+
+
+def test_spectral_upper_bound_is_valid_and_tight():
+    rng = np.random.default_rng(4)
+    for shape in ((1, 5), (3, 7), (6, 30), (12, 40)):
+        A = rng.normal(size=shape) * 10.0 ** rng.uniform(-3, 3, size=(shape[0], 1))
+        sv = np.linalg.svd(A, compute_uv=False)
+        ub = spectral_upper(A)
+        assert sv[0] <= ub <= np.sqrt(np.sum(A ** 2)) * (1 + 1e-12)
+        assert ub <= sv[0] * (1 + 1e-10)
+        v = np.linalg.svd(A)[2][0]
+        assert np.linalg.norm(A @ v) <= ub                              # a rigorous lower bound on ||A||_2
+        a, a_lo, smin = norm_bounds(A, "spectral")
+        assert a == ub and a_lo <= sv[0] <= a and 0 <= smin <= sv[shape[0] - 1]
+        af, af_lo, sminf = norm_bounds(A, "frobenius")
+        assert af == af_lo >= a * (1 - 1e-12) and sminf <= sv[shape[0] - 1] * (1 + 1e-12)
+    assert norm_bounds(np.zeros((0, 4)), "spectral") == (0.0, 0.0, math.inf)
+
+
+def test_c0_decision_separates_ok_fail_and_ambiguous():
+    r, pmin, pmax = 0.005, 0.5, 1.0
+    kap, s, _ = c0_decision(r, pmin, pmax, 5.0, 5.0)
+    assert s == "ok" and kap > 0
+    a0 = 10.0                                                            # kappa_p(a) crosses zero near here
+    lo, hi = 1.0, 40.0
+    for _ in range(200):                                                 # bisection for the root of kappa_p
+        mid = 0.5 * (lo + hi)
+        lo, hi = (mid, hi) if kappa_p(r, pmin, pmax, mid)[0] > 0 else (lo, mid)
+    a0 = hi
+    assert c0_decision(r, pmin, pmax, a0 * 1.01, a0 * 0.99)[1] == "ambiguous"   # undecided within [a_lo, a]
+    assert c0_decision(r, pmin, pmax, a0 * 1.02, a0 * 1.01)[1] == "fail"
+    assert c0_decision(r, pmin, pmax, a0 * 0.99, a0 * 0.98)[1] == "ok"
+    assert c0_decision(r, pmin, pmax, 1.0 / r, 1.0 / r)[1] == "fail"             # r a = 1
+
+
+def test_spectral_switching_bound_satisfies_remark_6_1(tmp_path):
+    seq = [[(x - 0.004 * k, y + 0.001 * k * x) for x, y in TRIPLE] for k in range(5)]
+    model = CertModel(_cfg(tmp_path, TRIPLE, clf_rate=0.025))
+    s = certify(model, seq, zero_fast_state(model), CertTolerances(norm="spectral")).steps
+    assert len(s["a"]) == 5 and set(s["c0_status"]) == {"ok"}
+    for k in range(1, 5):
+        assert s["a"][k] <= s["a"][k - 1] + s["dA"][k]                  # a_{k+1} <= a_k + d_k exactly
+        rows_k, rows_p = model.rows(seq[k]), model.rows(seq[k - 1])
+        kk = solve_kkt(rows_k, CertTolerances())
+        kp = solve_kkt(rows_p, CertTolerances())
+        dA = rows_k.A[kk.active] - rows_p.A[kp.active]
+        assert np.linalg.svd(dA, compute_uv=False)[0] <= s["dA"][k]     # d_k bounds ||Delta A||_2
+        assert s["a"][k] >= np.linalg.svd(rows_k.A[kk.active], compute_uv=False)[0]
 
 
 def test_m2_margin_is_a_valid_lower_bound_on_the_implementation(tmp_path):
@@ -143,13 +226,14 @@ def test_lemma_constants_conventions_for_empty_sets_and_zero_rows():
     assert lc.c == pytest.approx(lc.kappa_p)                   # m = 0: rate kappa_p / (1 + r*0)
 
 
-def test_certify_static_state_and_prop6_bound(tmp_path):
+@pytest.mark.parametrize("norm", ["spectral", "frobenius"])
+def test_certify_static_state_and_prop6_bound(tmp_path, norm):
     seq = [[(x - 0.002 * k, y) for x, y in TRIPLE] for k in range(6)]
     model = CertModel(_cfg(tmp_path, TRIPLE, clf_rate=0.025))
-    cert = certify(model, seq, zero_fast_state(model))
+    cert = certify(model, seq, zero_fast_state(model), CertTolerances(norm=norm))
     assert cert.results["contraction"].status == CERT_OK
     s = cert.steps
-    # R6.1 Prop 6 (non-increase, Frobenius): E_k >= |e_0| + sum_{j<k} delta_j
+    # R6.1 Prop 6 (non-increase; Remark 6.1 holds for both norm conventions): E_k >= |e_0| + sum_{j<k} delta_j
     cum = np.cumsum(s["delta"])
     assert np.all(np.asarray(s["E_ni"]) >= cert.initial["e0"] + cum - 1e-15)
 

@@ -153,7 +153,7 @@ def test_C_gated_against_reference_arrays(cert_C):
     assert all(r.status == CERT_OK for r in cert.results.values())
     obs = np.load(DATA / "clfc/obs_C_gated.npz")
     snaps = [_fs_from_obs(obs, k, 1) for k in range(len(pos))]
-    oe = observed_errors(model, pos, snaps, len(pos))
+    oe = observed_errors(model, pos, snaps, len(pos), CertTolerances(norm="frobenius"))   # saved convention
     _compare_arrays("C.observed_err", oe["err"], ref["act_err"], 1e-8, 1e-15)
 
 
@@ -171,7 +171,7 @@ def test_D3_against_reference_arrays(cert_D3):
     REPORT["D3"] = {"results": {v: r.as_dict() for v, r in cert.results.items()}, "summary": cert.summary()}
     assert all(r.status == CERT_OK for r in cert.results.values())
     snaps = pickle.load(open(DATA / "clfc/D3cl_run_obs.pkl", "rb"))["snaps"]
-    oe = observed_errors(model, pos, snaps, len(pos))
+    oe = observed_errors(model, pos, snaps, len(pos), CertTolerances(norm="frobenius"))   # saved convention
     _compare_arrays("D3.observed_err", oe["err"], ref["obs_e"], 1e-8, 1e-15)
     _compare_arrays("D3.observed_radius", oe["radius"], ref["obs_U"], 1e-8, 1e-15)
 
