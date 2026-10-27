@@ -381,7 +381,8 @@ class DistributedController(Controller):
                 "fallback_used": (not solve_ok),
                 "z_pair_snapshot": z_pair_snapshot,
             }
-        if debug_pair_12:
+        # Diagnostic print of the hard-coded pair (1, 2): skipped when the partner agent does not exist (e.g. N = 2).
+        if debug_pair_12 and (2 if agent.agent_id == 1 else 1) in all_agent_states:
             other = 2 if agent.agent_id == 1 else 1
             pair_label = f"pairwise(i={agent.agent_id},j={other})"
             row_idx = None
