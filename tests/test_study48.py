@@ -331,3 +331,32 @@ def test_pilot_batch_spec_is_ready():
         assert ("--warm" in s["runner_args"]) == bool(e.get("warm_start")) == (s["id"] == "D03")
         assert "--max-steps" not in s["runner_args"] and "--no-strict" not in s["runner_args"]
         assert s["config"]["simulation"]["steps"] == e["steps"]
+
+
+@needs_data
+def test_pilot_bundle_and_server_smoke_verification(tmp_path):
+    import subprocess
+    import sys
+    from diagnostics.study48.bundle import build
+    from diagnostics.study48.verify_smoke import verify
+    b = tmp_path / "bundle"
+    info = build(DATA / "study48", b)
+    assert sorted(p.stem for p in (b / "configs").glob("*.yaml")) == sorted(PILOTS)      # nothing beyond the 16
+    assert [p.name for p in (b / "warm").iterdir()] == ["D03_warm.pkl"]
+    for line in (b / "SHA256SUMS").read_text().splitlines():
+        h, f = line.split("  ")
+        assert hashlib_sha256(b / f) == h
+    assert len(info["files"]) == len((b / "SHA256SUMS").read_text().splitlines()) - 1
+    out = tmp_path / "smoke"
+    out.mkdir()
+    r = subprocess.run([sys.executable, "-m", "diagnostics.run_batch", "--spec", str(b / "pilot/server_smoke_batch.yaml"),
+                        "--workers", "3", "--out", str(out)], cwd=Path(__file__).resolve().parents[1],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr[-2000:]
+    res = verify(b, out, require_clean=False)        # the developer tree may be dirty; the server must not
+    assert all(ok for _, ok, _ in res), [x for x in res if not x[1]]
+
+
+def hashlib_sha256(p):
+    import hashlib
+    return hashlib.sha256(p.read_bytes()).hexdigest()

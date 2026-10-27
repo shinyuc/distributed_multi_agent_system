@@ -45,7 +45,7 @@ def _cfg(tmp_path, positions, steps=2, **ctl):
 def restore(monkeypatch):
     """install_hooks patches classes in-process; register the originals so that they are restored."""
     for obj, name in ((sm.Simulator, "initialize_fast_states"), (sm.Simulator, "_record_fast_history_snapshot"),
-                      (rec.FeasibilityRecorder, "__call__")):
+                      (rec.FeasibilityRecorder, "__call__"), (dcm, "build_local_qp_data")):
         monkeypatch.setattr(obj, name, getattr(obj, name))
     monkeypatch.setattr("sys.argv", ["pytest"])
     return monkeypatch
@@ -87,14 +87,21 @@ def test_warm_start_is_injected_unchanged(tmp_path, restore):
     wf = tmp_path / "warm.pkl"
     pickle.dump({"warm": warm, "stop_step": 7}, open(wf, "wb"))
     out = tmp_path / "run"
-    run_pilot.main(["--config", str(cfg), "--out", str(out), "--warm", str(wf), "--snapshot-every", "1"])
+    run_pilot.main(["--config", str(cfg), "--out", str(out), "--warm", str(wf), "--snapshot-every", "1",
+                    "--log-first-qps", "1"])
     snaps = pickle.load(open(out / "fast_snapshots.pkl", "rb"))["snaps"]
     rows = model.rows(pos)
     (p1, y1), (p2, y2) = rows.to_vec(snaps[0]), rows.to_vec(warm)
     assert np.array_equal(p1, p2) and np.array_equal(y1, y2)
     meta = json.loads((out / "warm_start.json").read_text())
     assert meta["stop_step"] == 7 and len(meta["sha256"]) == 64
-    assert json.loads((out / "pilot_runner.json").read_text())["warm_start"] is True
+    pr = json.loads((out / "pilot_runner.json").read_text())
+    assert pr["warm_start"] is True and pr["config_sha256"] == __import__("hashlib").sha256(cfg.read_bytes()).hexdigest()
+    assert len(pr["git"]["commit"]) == 40
+    first = json.loads((out / "first_qp_inputs.json").read_text())
+    assert {(q["step"], q["agent"]) for q in first} == {(0, 0), (0, 1)}       # every step-0 QP, nothing later
+    for q in first:                                                          # the QPs received the warm mismatch
+        assert q["z_clf"] == {"0": 1e-4, "1": -1e-4}
 
 
 def test_batch_spec_runner_and_path_arguments(tmp_path):
