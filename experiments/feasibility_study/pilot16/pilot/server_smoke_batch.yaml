@@ -1,0 +1,35 @@
+# Server smoke test only: 3 outer steps each. C09: zero obstacles, proceeds; A01: terminates at step 0 (OSQP infeasible), no control applied; D03: warm start; first QPs must receive the warm mismatch
+name: study48_server_smoke
+scenarios:
+- id: C09
+  base_config: ../configs/C09.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '10'
+  - --max-steps
+  - '3'
+  - --log-first-qps
+  - '1'
+- id: A01
+  base_config: ../configs/A01.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+  - --max-steps
+  - '3'
+  - --log-first-qps
+  - '1'
+- id: D03
+  base_config: ../configs/D03.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --warm
+  - path: ../warm/D03_warm.pkl
+  - --snapshot-every
+  - '1'
+  - --max-steps
+  - '3'
+  - --log-first-qps
+  - '1'

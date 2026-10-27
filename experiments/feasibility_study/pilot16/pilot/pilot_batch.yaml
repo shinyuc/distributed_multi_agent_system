@@ -1,0 +1,103 @@
+# 16-scenario pilot of the 48-scenario feasibility study (plan v2 section 7). Generated from manifest.json.
+# Every scenario runs diagnostics.study48.run_pilot (unchanged run_feasibility pipeline + strict guard + snapshots;
+# D03 additionally injects its frozen warm start). Paths are relative to this file.
+name: study48_pilot16
+scenarios:
+- id: A01
+  base_config: ../configs/A01.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: A03
+  base_config: ../configs/A03.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: A04
+  base_config: ../configs/A04.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: A09
+  base_config: ../configs/A09.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: B01
+  base_config: ../configs/B01.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: B02
+  base_config: ../configs/B02.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: B04
+  base_config: ../configs/B04.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: B07
+  base_config: ../configs/B07.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '10'
+- id: C02
+  base_config: ../configs/C02.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '10'
+- id: C03
+  base_config: ../configs/C03.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '1'
+- id: C09
+  base_config: ../configs/C09.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '10'
+- id: C11
+  base_config: ../configs/C11.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '10'
+- id: D02
+  base_config: ../configs/D02.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '10'
+- id: D03
+  base_config: ../configs/D03.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --warm
+  - path: ../warm/D03_warm.pkl
+  - --snapshot-every
+  - '1'
+- id: D04
+  base_config: ../configs/D04.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '10'
+- id: D08
+  base_config: ../configs/D08.yaml
+  runner: diagnostics.study48.run_pilot
+  runner_args:
+  - --snapshot-every
+  - '10'

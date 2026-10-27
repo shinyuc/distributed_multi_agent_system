@@ -360,3 +360,48 @@ def test_pilot_bundle_and_server_smoke_verification(tmp_path):
 def hashlib_sha256(p):
     import hashlib
     return hashlib.sha256(p.read_bytes()).hexdigest()
+
+
+PILOT16 = Path(__file__).resolve().parents[1] / "experiments/feasibility_study/pilot16"
+
+
+def test_repository_pilot_inputs_are_complete_portable_and_unchanged(study):
+    import hashlib
+    import json
+    import subprocess
+    from diagnostics.run_batch import load_spec
+    out, doc = study
+    sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+    sums = [ln.split("  ") for ln in (PILOT16 / "SHA256SUMS").read_text().splitlines()]
+    assert all(sha(PILOT16 / f) == h for h, f in sums)
+    listed = {f for _, f in sums} | {"SHA256SUMS"}
+    present = {p.relative_to(PILOT16).as_posix() for p in PILOT16.rglob("*") if p.is_file()}
+    assert present == listed                                              # nothing unlisted, nothing missing
+    assert sorted(p.stem for p in (PILOT16 / "configs").glob("*.yaml")) == sorted(PILOTS)
+    man = {e["id"]: e for e in json.loads((PILOT16 / "manifest_pilot16.json").read_text())["scenarios"]}
+    gen = {e["id"]: e for e in doc["scenarios"]}
+    for sid in PILOTS:                                                    # byte-identical to a fresh generation
+        assert sha(PILOT16 / "configs" / f"{sid}.yaml") == man[sid]["config_sha256"] == gen[sid]["config_sha256"]
+        assert (PILOT16 / "configs" / f"{sid}.yaml").read_bytes() == (out / "configs" / f"{sid}.yaml").read_bytes()
+    cfg = load_config(str(PILOT16 / "configs/D03.yaml"))                  # warm start recomputed bit-identically
+    model = CertModel(cfg)
+    fs, info = frozen_warmup(model, cfg.agents.initial_positions, man["D03"]["init"])
+    ref = pickle.load(open(PILOT16 / "warm/D03_warm.pkl", "rb"))
+    rows = model.rows(cfg.agents.initial_positions)
+    (p1, y1), (p2, y2) = rows.to_vec(fs), rows.to_vec(ref["warm"])
+    assert np.array_equal(p1, p2) and np.array_equal(y1, y2) and info["stop_step"] == ref["stop_step"] == 863
+    for name, n in (("pilot_batch", 16), ("server_smoke_batch", 3)):
+        text = (PILOT16 / "pilot" / f"{name}.yaml").read_text()
+        assert "/Users/" not in text and "/home/" not in text and "/private/" not in text
+        sc = load_spec(PILOT16 / "pilot" / f"{name}.yaml")["scenarios"]
+        assert len(sc) == n
+        for s in sc:
+            assert Path(s["base_config"]).is_relative_to(PILOT16.resolve())
+            assert all(Path(a).is_relative_to(PILOT16.resolve()) for a in s["runner_args"] if a.endswith(".pkl"))
+            assert ("--max-steps" in s["runner_args"]) == (name == "server_smoke_batch")
+            assert "--no-strict" not in s["runner_args"]
+    r = subprocess.run(["git", "check-ignore", "--no-index", *sorted(present)], cwd=PILOT16, capture_output=True, text=True)
+    assert r.stdout == ""                                                 # no file excluded by a .gitignore rule
+    assert "run_batch --spec" in (PILOT16 / "SERVER_STEPS.sh").read_text()
+    assert not any(ln.strip().startswith("$PY -m diagnostics.run_batch --spec \"$STUDY_DIR/pilot/pilot_batch")
+                   for ln in (PILOT16 / "SERVER_STEPS.sh").read_text().splitlines())   # the pilot is only printed
